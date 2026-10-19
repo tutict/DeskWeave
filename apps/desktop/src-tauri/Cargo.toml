@@ -1,0 +1,29 @@
+[package]
+name = "deskweave-desktop"
+version = "0.0.1"
+description = "DeskWeave desktop shell (Tauri 2)"
+authors = ["DeskWeave contributors"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# The `_lib` suffix avoids a name collision with the binary on Windows.
+name = "deskweave_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Plain-HTTP client for the loopback control API. TLS is deliberately disabled:
+# the runtime only ever listens on 127.0.0.1 and never speaks HTTPS.
+ureq = { version = "2", default-features = false }
+uuid = { version = "1", features = ["v4"] }
+
+[features]
+# This feature is used for production builds where `devUrl` points to the
+# bundled assets instead of the Vite dev server.
+custom-protocol = ["tauri/custom-protocol"]

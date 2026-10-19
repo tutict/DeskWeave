@@ -1,0 +1,59 @@
+[project]
+name = "deskweave-workspace"
+version = "0.0.0"
+description = "DeskWeave - local-first agent desktop infrastructure (workspace root)."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+# The workspace root is a *virtual* project: it is not installed itself, it only
+# groups the member packages below and holds shared dev tooling configuration.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "runtime",
+    "adapters/*",
+    "plugins/*",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra -p no:cacheprovider"
+filterwarnings = ["error::DeprecationWarning:deskweave_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = [
+    "packages/contracts/src",
+    "packages/adapter-sdk/src",
+    "packages/plugin-sdk/src",
+    "packages/mcp-gateway/src",
+    "runtime/src",
+    "adapters/browser/src",
+    "adapters/blender/src",
+    "adapters/filesystem/src",
+    "plugins/anime-modeling/src",
+    "tests",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+
+

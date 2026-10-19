@@ -1,0 +1,14 @@
+# Normalise line endings to LF in the repository and in the working tree.
+# .editorconfig already declares LF; this makes it enforceable on Windows too.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF to run under cmd.exe / PowerShell.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets: never touch them.
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary

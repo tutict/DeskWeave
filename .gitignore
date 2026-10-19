@@ -1,0 +1,60 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.pytest-tmp/
+pytest-cache-files-*/
+.tmp-tests/
+.tmp-*/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- uv ----
+.uv-cache/
+uv.tmp/
+
+# ---- Node / pnpm ----
+node_modules/
+.npm-cache/
+.pnpm-store/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# ---- Tauri / Rust ----
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+**/*.rs.bk
+
+# ---- Editors / OS ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# ---- Local runtime state ----
+.deskweave/
+*.log
+.env
+!.env.example
+
+# ---- Local agent workspace (per-developer notes, not shared) ----
+.workbuddy/
+
+
+
+

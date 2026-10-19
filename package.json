@@ -1,0 +1,16 @@
+{
+  "name": "deskweave",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DeskWeave - local-first agent desktop infrastructure (monorepo root).",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "pnpm --filter @deskweave/desktop dev",
+    "build": "pnpm --filter @deskweave/desktop build",
+    "test": "pnpm --filter @deskweave/desktop test",
+    "lint": "pnpm --filter @deskweave/desktop lint",
+    "format": "pnpm --filter @deskweave/desktop format",
+    "format:check": "pnpm --filter @deskweave/desktop format:check",
+    "tauri": "pnpm --filter @deskweave/desktop tauri"
+  }
+}

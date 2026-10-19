@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  # esbuild ships a native binary downloaded by a postinstall script; vite and
+  # vitest cannot run without it. Everything else stays denied by default.
+  esbuild: true
