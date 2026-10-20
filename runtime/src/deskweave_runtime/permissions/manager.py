@@ -1,11 +1,15 @@
 """The single permission layer shared by every adapter.
 
-Policy (Phase 0, deliberately conservative):
+Policy (Phase 1, deliberately conservative):
 
 * ``code:execution`` scope is always denied — there is no generic code-run entry
-  point in this phase.
+  point.
+* a **one-shot** allowance (recorded when the user confirms a specific operation
+  in the desktop UI) permits exactly the next matching call and is then consumed;
 * an explicit, unexpired grant for ``(adapter_id, capability)`` allows the call;
-* otherwise read-only capabilities are allowed;
+* read-only capabilities are allowed;
+* browser collection that does not declare confirmation is allowed: it reads
+  public pages and writes only into the runtime's sandboxed artifact directory;
 * everything else requires user confirmation (reported as a decision, not
   silently allowed).
 
@@ -41,12 +45,24 @@ class PermissionManager:
     ) -> None:
         self._grants = grant_repository
         self._logger = logger or logging.getLogger("deskweave.permissions")
+        self._one_shot: set[tuple[str, str]] = set()
 
     async def check(self, request: PermissionRequest) -> PermissionResult:
         if request.scope is PermissionScope.CODE_EXECUTION:
             return PermissionResult(
                 decision=PermissionDecision.DENY,
-                reason="code execution is not permitted in this phase",
+                reason="code execution is not permitted",
+            )
+
+        key = (request.adapter_id, request.capability)
+        if key in self._one_shot:
+            self._one_shot.discard(key)
+            self._logger.info(
+                "one-shot permission consumed for %s/%s", request.adapter_id, request.capability
+            )
+            return PermissionResult(
+                decision=PermissionDecision.ALLOW,
+                reason="confirmed by the user for this operation",
             )
 
         grant = await self._find_grant(request.adapter_id, request.capability)
@@ -60,10 +76,28 @@ class PermissionManager:
         if request.risk is RiskLevel.READ_ONLY:
             return PermissionResult(decision=PermissionDecision.ALLOW, reason="read-only operation")
 
+        if request.scope is PermissionScope.BROWSER_CONTROL and not request.requires_confirmation:
+            # Public web reads with no writes outside the artifact sandbox. The
+            # browser is still sandboxed by the artifact store's path policy.
+            return PermissionResult(
+                decision=PermissionDecision.ALLOW,
+                reason="browser collection without confirmation requirement",
+            )
+
         return PermissionResult(
             decision=PermissionDecision.REQUIRE_CONFIRMATION,
             reason=f"risk level {request.risk.value!r} requires user confirmation",
         )
+
+    def allow_once(self, adapter_id: str, capability: str) -> None:
+        """Authorise exactly one upcoming ``(adapter_id, capability)`` execution.
+
+        Used after the user confirms a specific task in the desktop UI. The
+        allowance is consumed by the next matching check, so a retry or a stale
+        request cannot reuse it.
+        """
+        self._one_shot.add((adapter_id, capability))
+        self._logger.info("one-shot permission recorded for %s/%s", adapter_id, capability)
 
     async def grant(
         self,

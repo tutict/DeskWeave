@@ -24,13 +24,16 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from deskweave_contracts import CollectionRequest, DeskWeaveError
 from deskweave_runtime import Runtime
 
 __version__ = "0.0.1"
 
 INSTRUCTIONS = (
-    "DeskWeave local runtime gateway. Tools are read-only in this phase and "
-    "report real runtime state. Side-effecting tools are not yet exposed."
+    "DeskWeave local runtime gateway. Tools report real runtime state and can start "
+    "a reference-image collection. Confirming a selection is *not* exposed as a tool: "
+    "a human must confirm it in the desktop UI, so an agent can never authorise its own "
+    "Blender execution. Use get_reference_task to poll for the outcome."
 )
 
 #: Declared argument names per tool. Empty frozenset = the tool takes no arguments.
@@ -40,6 +43,9 @@ TOOL_ARGUMENTS: dict[str, frozenset[str]] = {
     "list_adapters": frozenset(),
     "list_capabilities": frozenset(),
     "list_tasks": frozenset(),
+    "collect_reference_images": frozenset({"query", "limit", "source"}),
+    "get_reference_task": frozenset({"task_id"}),
+    "cancel_reference_task": frozenset({"task_id"}),
 }
 
 
@@ -111,7 +117,109 @@ def build_server(runtime: Runtime, *, name: str = "deskweave") -> MCPServer:
         tasks = await runtime.workflow.list_tasks()
         return json.dumps([task.model_dump(mode="json") for task in tasks])
 
+    @server.tool(
+        name="collect_reference_images",
+        description=(
+            "Start collecting reference images for a query. Returns immediately with a "
+            "task id; the download and the human confirmation happen asynchronously. "
+            "Poll get_reference_task for progress."
+        ),
+    )
+    async def collect_reference_images(
+        query: str,
+        limit: int = 6,
+        source: str | None = None,
+    ) -> str:
+        request = CollectionRequest.model_validate(
+            {"query": query, "limit": limit, **({"source": source} if source else {})}
+        )
+        try:
+            task = await runtime.references.start_collection(request)
+        except DeskWeaveError as exc:
+            return _failure(exc)
+        return json.dumps(
+            {
+                "ok": True,
+                "task_id": task.task_id,
+                "status": task.status.value,
+                "query": request.query,
+                "limit": request.limit,
+                "source": request.source.value,
+                "message": (
+                    "Collection started. Poll get_reference_task until the status is "
+                    "waiting_for_confirmation, then ask the user to confirm in DeskWeave."
+                ),
+            }
+        )
+
+    @server.tool(
+        name="get_reference_task",
+        description=(
+            "Return one reference task with its candidate artifact ids, per-candidate "
+            "failures and the execution outcome. Contains no filesystem paths."
+        ),
+    )
+    async def get_reference_task(task_id: str) -> str:
+        try:
+            view = await runtime.references.get_view(task_id)
+        except DeskWeaveError as exc:
+            return _failure(exc)
+        return json.dumps(_view_payload(view))
+
+    @server.tool(
+        name="cancel_reference_task",
+        description="Cancel a reference task that has not finished yet.",
+    )
+    async def cancel_reference_task(task_id: str) -> str:
+        try:
+            await runtime.references.cancel(task_id)
+            view = await runtime.references.get_view(task_id)
+        except DeskWeaveError as exc:
+            return _failure(exc)
+        return json.dumps(_view_payload(view))
+
     return server
+
+
+def _view_payload(view: Any) -> dict[str, Any]:
+    """Serialise a task view for an agent: ids and metadata, never paths."""
+    task = view.task
+    result = task.result or {}
+    return {
+        "ok": task.status.value in {"waiting_for_confirmation", "succeeded"},
+        "task_id": task.task_id,
+        "status": task.status.value,
+        "query": result.get("query"),
+        "candidates": [
+            {
+                "artifact_id": artifact.artifact_id,
+                "title": artifact.metadata.title,
+                "media_type": artifact.media_type,
+                "width": artifact.metadata.width,
+                "height": artifact.metadata.height,
+                "source_page": artifact.metadata.source_page,
+            }
+            for artifact in view.artifacts
+        ],
+        "failures": result.get("failures", []),
+        "confirmation": result.get("confirmation"),
+        "execution": _public_execution(result.get("execution")),
+        "error": task.error.model_dump(mode="json") if task.error else None,
+        "awaiting_user_confirmation": task.status.value == "waiting_for_confirmation",
+    }
+
+
+def _public_execution(execution: Any) -> dict[str, Any] | None:
+    """Strip absolute paths from the execution summary before it leaves the process."""
+    if not isinstance(execution, dict):
+        return None
+    public = {key: value for key, value in execution.items() if key not in {"blend_file"}}
+    return public
+
+
+def _failure(error: Any) -> str:
+    info = error.to_info()
+    return json.dumps({"ok": False, "error": info.model_dump(mode="json")})
 
 
 async def run_on_streams(server: MCPServer, read_stream: Any, write_stream: Any) -> None:

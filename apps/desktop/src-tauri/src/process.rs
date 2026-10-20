@@ -7,6 +7,11 @@
 //!   [`crate::bridge::runtime_request`], never the token itself;
 //! * if the interpreter or the runtime fails to start, the error is surfaced to
 //!   the UI instead of being swallowed.
+//!
+//! Shutdown is a *sequence*, not a `kill()`: ask the runtime to close over HTTP
+//! (so adapters can close Chromium/Blender and SQLite can flush), wait for it to
+//! exit, and only then force-kill. A Windows Job Object as a backstop makes sure
+//! nothing the runtime spawned outlives this process.
 
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
@@ -15,16 +20,38 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::job::ChildJob;
+
 /// How long we wait for `GET /health` to answer before declaring startup failed.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
+/// How long the runtime gets to close its own resources after `POST /shutdown`.
+pub const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const SHUTDOWN_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// What actually happened when the runtime was stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopOutcome {
+    /// The child had already exited before we asked.
+    AlreadyExited,
+    /// The runtime accepted `POST /shutdown` and exited on its own.
+    Graceful,
+    /// The runtime did not exit within the grace period and was terminated.
+    Forced,
+}
+
 /// A running (or failed) Python runtime process.
 pub struct RuntimeProcess {
     child: Option<Child>,
+    /// Present on Windows when the child was successfully placed in a job.
+    job: Option<ChildJob>,
     pub base_url: String,
     pub token: String,
     pub error: Option<String>,
+    /// False when job supervision is unavailable (logged, not fatal).
+    pub supervised: bool,
 }
 
 impl RuntimeProcess {
@@ -58,6 +85,7 @@ impl RuntimeProcess {
             .env("DESKWEAVE_DATA_DIR", &data_dir)
             .env("DESKWEAVE_TOKEN", &token)
             .env("DESKWEAVE_LOG_LEVEL", "INFO")
+            .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -79,6 +107,26 @@ impl RuntimeProcess {
             }
         };
 
+        // Assign to the job immediately: the shorter the window between spawn and
+        // assignment, the smaller the chance a grandchild escapes supervision.
+        let mut supervised = false;
+        let job = match ChildJob::create() {
+            Ok(job) => match job.assign(&child) {
+                Ok(()) => {
+                    supervised = true;
+                    Some(job)
+                }
+                Err(err) => {
+                    eprintln!("[deskweave] could not put the runtime into a job object: {err}");
+                    None
+                }
+            },
+            Err(err) => {
+                eprintln!("[deskweave] job object supervision unavailable: {err}");
+                None
+            }
+        };
+
         // Forward the runtime's stderr into this process so logs stay visible in
         // the terminal that launched the desktop app.
         if let Some(stderr) = child.stderr.take() {
@@ -90,16 +138,18 @@ impl RuntimeProcess {
         }
 
         let base_url = format!("http://127.0.0.1:{port}");
-        let process = Self {
+        let mut process = Self {
             child: Some(child),
+            job,
             base_url: base_url.clone(),
             token: token.clone(),
             error: None,
+            supervised,
         };
 
         if let Err(err) = wait_until_healthy(&base_url, &token) {
-            let mut process = process;
-            process.stop();
+            let outcome = process.stop_with_grace(GRACEFUL_SHUTDOWN_TIMEOUT);
+            eprintln!("[deskweave] startup failed, runtime stop: {outcome:?}");
             return Self::failed(err);
         }
         process
@@ -109,9 +159,11 @@ impl RuntimeProcess {
         eprintln!("[deskweave] runtime unavailable: {error}");
         Self {
             child: None,
+            job: None,
             base_url: String::new(),
             token: String::new(),
             error: Some(error),
+            supervised: false,
         }
     }
 
@@ -122,12 +174,55 @@ impl RuntimeProcess {
         }
     }
 
-    /// Terminate the child process. Safe to call more than once.
+    /// Stop the runtime: ask politely, wait, then force. Safe to call repeatedly.
     pub fn stop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        let outcome = self.stop_with_grace(GRACEFUL_SHUTDOWN_TIMEOUT);
+        eprintln!("[deskweave] runtime stop: {outcome:?}");
+    }
+
+    /// Stop with an explicit grace period. Returns what actually happened, so the
+    /// caller (and tests) never have to assume the child is gone.
+    pub fn stop_with_grace(&mut self, grace: Duration) -> StopOutcome {
+        let Some(mut child) = self.child.take() else {
+            self.release_job();
+            return StopOutcome::AlreadyExited;
+        };
+
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            self.release_job();
+            return StopOutcome::AlreadyExited;
         }
+
+        // Ask the runtime to close: this runs its `finally` blocks, closes the
+        // browser context, terminates a Blender subprocess and flushes SQLite.
+        if let Err(err) = request_shutdown(&self.base_url, &self.token) {
+            eprintln!("[deskweave] graceful shutdown request failed ({err}); will force-stop");
+        }
+
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    self.release_job();
+                    return StopOutcome::Graceful;
+                }
+                Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
+                Err(err) => {
+                    eprintln!("[deskweave] could not poll the runtime process: {err}");
+                    break;
+                }
+            }
+        }
+
+        kill_tree(&mut child);
+        let _ = child.wait();
+        self.release_job();
+        StopOutcome::Forced
+    }
+
+    /// Closing the job terminates anything the runtime left behind.
+    fn release_job(&mut self) {
+        self.job.take();
     }
 }
 
@@ -135,6 +230,44 @@ impl Drop for RuntimeProcess {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// Terminate the child and everything it started.
+///
+/// On Windows a venv `python.exe` can be a launcher that re-execs the real
+/// interpreter, so `Child::kill` alone would leave the interpreter running.
+/// `taskkill /T` is scoped to this process id — never to a process *name*, so it
+/// cannot touch an unrelated Python or Blender.
+#[cfg(windows)]
+fn kill_tree(child: &mut Child) {
+    let pid = child.id().to_string();
+    let killed = Command::new("taskkill")
+        .args(["/PID", &pid, "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !killed {
+        let _ = child.kill();
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_tree(child: &mut Child) {
+    let _ = child.kill();
+}
+
+fn request_shutdown(base_url: &str, token: &str) -> Result<(), String> {
+    if base_url.is_empty() || token.is_empty() {
+        return Err("the runtime never started".to_string());
+    }
+    ureq::post(&format!("{base_url}/shutdown"))
+        .set("Authorization", &format!("Bearer {token}"))
+        .timeout(SHUTDOWN_REQUEST_TIMEOUT)
+        .call()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
 }
 
 fn free_loopback_port() -> Option<u16> {
@@ -217,5 +350,149 @@ fn probe_health(base_url: &str, token: &str) -> Result<(), String> {
     match response {
         Ok(_) => Ok(()),
         Err(err) => Err(err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    use super::{RuntimeProcess, StopOutcome};
+    /// A stand-in for the runtime: alive, but not reachable over HTTP.
+    fn unreachable_process() -> RuntimeProcess {
+        let child = Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("could not spawn the test child");
+        RuntimeProcess {
+            child: Some(child),
+            job: None,
+            // Port 9 (discard) is closed on a default Windows install, so the
+            // graceful request fails immediately instead of hanging.
+            base_url: "http://127.0.0.1:9".to_string(),
+            token: "test-token".to_string(),
+            error: None,
+            supervised: false,
+        }
+    }
+
+    #[test]
+    fn stop_escalates_to_kill_when_the_endpoint_is_unreachable() {
+        let mut process = unreachable_process();
+        let outcome = process.stop_with_grace(Duration::from_millis(300));
+        assert_eq!(outcome, StopOutcome::Forced);
+        assert!(!process.is_running(), "the child is still running");
+    }
+
+    #[test]
+    fn stop_is_idempotent() {
+        let mut process = unreachable_process();
+        assert_eq!(
+            process.stop_with_grace(Duration::from_millis(100)),
+            StopOutcome::Forced
+        );
+        assert_eq!(
+            process.stop_with_grace(Duration::from_millis(100)),
+            StopOutcome::AlreadyExited
+        );
+    }
+
+    /// A venv `python.exe` can re-exec the interpreter. Killing only the launcher
+    /// would orphan the real process, so `kill_tree` must take the whole tree.
+    #[cfg(windows)]
+    #[test]
+    fn kill_tree_terminates_the_launcher_and_its_child() {
+        use std::thread::sleep;
+        use std::time::Instant;
+
+        use super::kill_tree;
+
+        let Some(python) = which_python() else {
+            eprintln!("skipping: no python on PATH");
+            return;
+        };
+        let pid_file =
+            std::env::temp_dir().join(format!("deskweave-kill-tree-{}.pid", std::process::id()));
+        let _ = std::fs::remove_file(&pid_file);
+        let inner = format!(
+            "import os,pathlib,time; pathlib.Path({:?}).write_text(str(os.getpid())); time.sleep(60)",
+            pid_file.display().to_string()
+        );
+        let outer = format!(
+            "import subprocess,sys; subprocess.run([sys.executable,'-c',{:?}])",
+            inner
+        );
+
+        let mut child = Command::new(&python)
+            .args(["-c", &outer])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("could not spawn the test launcher");
+
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !pid_file.exists() && Instant::now() < deadline {
+            sleep(Duration::from_millis(50));
+        }
+        let grandchild: u32 = std::fs::read_to_string(&pid_file)
+            .expect("the grandchild never wrote its pid")
+            .trim()
+            .parse()
+            .expect("the pid file did not contain a number");
+        assert!(is_alive(grandchild), "the grandchild should be running");
+        assert_ne!(grandchild, child.id(), "the test needs a real grandchild");
+
+        kill_tree(&mut child);
+        let _ = child.wait();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if !is_alive(grandchild) {
+                let _ = std::fs::remove_file(&pid_file);
+                return;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        panic!("the re-exec'd interpreter (pid {grandchild}) survived the tree kill");
+    }
+
+    #[cfg(windows)]
+    fn which_python() -> Option<std::path::PathBuf> {
+        for name in ["python", "python3"] {
+            if Command::new(name)
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+            {
+                return Some(std::path::PathBuf::from(name));
+            }
+        }
+        None
+    }
+
+    /// `OpenProcess` with query rights is the cheapest "is this pid alive" probe.
+    #[cfg(windows)]
+    fn is_alive(pid: u32) -> bool {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        // SAFETY: no inheritance, no special rights; the handle is closed when
+        // non-null, and a null handle simply means "no such process".
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { CloseHandle(handle) };
+        true
     }
 }

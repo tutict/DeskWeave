@@ -64,7 +64,17 @@ async def test_list_tools(
         await session.initialize()
         tools = await session.list_tools()
         names = {tool.name for tool in tools.tools}
-        assert {"runtime_health", "list_adapters", "list_capabilities", "list_tasks"} <= names
+        assert {
+            "runtime_health",
+            "list_adapters",
+            "list_capabilities",
+            "list_tasks",
+            "collect_reference_images",
+            "get_reference_task",
+            "cancel_reference_task",
+        } <= names
+        # Confirmation must never be reachable from an agent.
+        assert not any("confirm" in name for name in names)
 
 
 async def test_runtime_health_tool_returns_real_state(
@@ -83,7 +93,7 @@ async def test_runtime_health_tool_returns_real_state(
         assert payload["schema_version"] >= 1
 
 
-async def test_list_adapters_tool_is_empty_state(
+async def test_list_adapters_tool_reports_the_shipped_connectors(
     python_executable: str,
     repo_root: Path,
     subprocess_env: dict[str, str],
@@ -93,7 +103,15 @@ async def test_list_adapters_tool_is_empty_state(
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         result = await session.call_tool("list_adapters", {})
-        assert json.loads(result.content[0].text) == []
+        adapters = json.loads(result.content[0].text)
+        ids = {adapter["adapter_id"] for adapter in adapters}
+        # The shipped set. `filesystem` is not registered by bootstrap (it is
+        # opt-in: it needs an allowed root), so it is absent on purpose.
+        assert ids == {"browser", "blender", "wikimedia"}
+        for adapter in adapters:
+            assert adapter["capabilities"], adapter["adapter_id"]
+            # Descriptors must never carry local paths.
+            assert str(repo_root) not in json.dumps(adapter)
 
 
 async def test_unknown_tool_reports_error(

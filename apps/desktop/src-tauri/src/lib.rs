@@ -5,6 +5,7 @@
 //! here — workflows, permissions and adapters stay in Python.
 
 mod bridge;
+mod job;
 mod process;
 
 use std::path::PathBuf;
@@ -49,7 +50,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bridge::runtime_request,
-            bridge::runtime_status
+            bridge::runtime_status,
+            bridge::artifact_preview
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the DeskWeave desktop shell");
@@ -59,6 +61,7 @@ pub fn run() {
             if let Some(state) = app_handle.try_state::<AppState>() {
                 if let Ok(mut guard) = state.process.lock() {
                     if let Some(process) = guard.as_mut() {
+                        // Graceful first, then forced: `stop` logs the outcome.
                         process.stop();
                     }
                 }

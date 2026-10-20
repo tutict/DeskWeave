@@ -45,6 +45,10 @@ class PermissionRequest(BaseModel):
     capability: str = Field(description="Capability being invoked.")
     scope: PermissionScope = Field(description="Resource scope touched.")
     risk: RiskLevel = Field(default=RiskLevel.READ_ONLY)
+    requires_confirmation: bool = Field(
+        default=False,
+        description="The capability declares that a human must confirm it.",
+    )
     resource: str | None = Field(
         default=None,
         description="Logical resource identifier (NOT a filesystem path used as a token).",

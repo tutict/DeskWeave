@@ -20,7 +20,9 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from jsonschema import Draft202012Validator
@@ -55,6 +57,11 @@ class PermissionChecker(Protocol):
     async def check(self, request: PermissionRequest) -> PermissionResult: ...
 
 
+#: Maps a logical artifact id to a verified local path. Wired by the runtime to
+#: the artifact store so adapters never accept filesystem paths from callers.
+ResourceResolver = Callable[[str], Awaitable[Path]]
+
+
 def validate_arguments(capability: Capability, arguments: dict[str, Any]) -> None:
     """Validate ``arguments`` against ``capability.parameters_schema``.
 
@@ -84,10 +91,12 @@ class Adapter(abc.ABC):
         descriptor: AdapterDescriptor,
         *,
         permission_checker: PermissionChecker | None = None,
+        resource_resolver: ResourceResolver | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._descriptor = descriptor
         self._permission_checker = permission_checker
+        self._resource_resolver = resource_resolver
         self._logger = logger or logging.getLogger(f"deskweave.adapter.{descriptor.adapter_id}")
         self._status: AdapterStatus = AdapterStatus.DISCOVERED
 
@@ -103,6 +112,25 @@ class Adapter(abc.ABC):
     def set_permission_checker(self, checker: PermissionChecker | None) -> None:
         """Wire (or clear) the permission checker used by :meth:`execute`."""
         self._permission_checker = checker
+
+    def set_resource_resolver(self, resolver: ResourceResolver | None) -> None:
+        """Wire (or clear) the artifact-id resolver used by :meth:`resolve_artifact`."""
+        self._resource_resolver = resolver
+
+    async def resolve_artifact(self, artifact_id: str) -> Path:
+        """Resolve an authorized artifact id to a local path.
+
+        Adapters must use this instead of accepting paths from callers: the
+        runtime re-checks that the artifact exists and lives inside an allowed
+        root, so a tool argument can never point at ``C:\\Windows\\...``.
+        """
+        if self._resource_resolver is None:
+            raise PermissionDeniedError(
+                f"adapter {self.adapter_id!r} has no artifact resolver; "
+                "local files cannot be addressed",
+                details={"adapter_id": self.adapter_id, "artifact_id": artifact_id},
+            )
+        return await self._resource_resolver(artifact_id)
 
     # -- lifecycle --------------------------------------------------------
     async def discover(self) -> AdapterDescriptor:
@@ -218,7 +246,9 @@ class Adapter(abc.ABC):
                 capability=capability.name,
                 scope=capability.scope,
                 risk=capability.risk,
+                requires_confirmation=capability.requires_confirmation,
                 reason=request.reason,
+                resource=request.task_id,
             )
         )
         if result.decision is PermissionDecision.DENY:
@@ -255,4 +285,4 @@ class Adapter(abc.ABC):
         )
 
 
-__all__ = ["Adapter", "PermissionChecker", "validate_arguments"]
+__all__ = ["Adapter", "PermissionChecker", "ResourceResolver", "validate_arguments"]

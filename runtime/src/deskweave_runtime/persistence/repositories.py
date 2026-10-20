@@ -8,10 +8,12 @@ rest of the runtime works with typed models.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from deskweave_contracts import (
+    ArtifactMetadata,
     ArtifactRef,
     ErrorInfo,
     ExecutionRecord,
@@ -145,13 +147,24 @@ class TaskRepository:
         return await self.get(task_id)
 
     async def list(
-        self, *, run_id: str | None = None, limit: int | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        statuses: Sequence[TaskStatus] | None = None,
+        limit: int | None = None,
     ) -> list[TaskRecord]:
         sql = "SELECT * FROM task"
+        clauses: list[str] = []
         params: list[Any] = []
         if run_id is not None:
-            sql += " WHERE run_id = ?"
+            clauses.append("run_id = ?")
             params.append(run_id)
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(status.value for status in statuses)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at"
         if limit is not None:
             sql += " LIMIT ?"
@@ -177,12 +190,10 @@ class ArtifactRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def create(
-        self, artifact: ArtifactRef, metadata: dict[str, Any] | None = None
-    ) -> ArtifactRef:
+    async def create(self, artifact: ArtifactRef) -> ArtifactRef:
         await self._db.execute(
             "INSERT INTO artifact (artifact_id, kind, uri, media_type, size_bytes, created_at,"
-            " metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " metadata, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 artifact.artifact_id,
                 artifact.kind.value,
@@ -190,7 +201,8 @@ class ArtifactRepository:
                 artifact.media_type,
                 artifact.size_bytes,
                 _dt_to_str(artifact.created_at),
-                json.dumps(metadata or {}),
+                artifact.metadata.model_dump_json(),
+                artifact.task_id,
             ),
         )
         return artifact
@@ -214,6 +226,13 @@ class ArtifactRepository:
         rows = await self._db.fetchall(sql, params)
         return [self._row_to_model(row) for row in rows]
 
+    async def list_for_task(self, task_id: str) -> list[ArtifactRef]:
+        """Return artifacts produced by ``task_id``, oldest first."""
+        rows = await self._db.fetchall(
+            "SELECT * FROM artifact WHERE task_id = ? ORDER BY created_at", (task_id,)
+        )
+        return [self._row_to_model(row) for row in rows]
+
     @staticmethod
     def _row_to_model(row: Any) -> ArtifactRef:
         return ArtifactRef(
@@ -222,6 +241,8 @@ class ArtifactRepository:
             uri=row["uri"],
             media_type=row["media_type"],
             size_bytes=row["size_bytes"],
+            task_id=row["task_id"],
+            metadata=ArtifactMetadata.model_validate_json(row["metadata"] or "{}"),
             created_at=_str_to_dt(row["created_at"]),
         )
 

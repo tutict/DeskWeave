@@ -9,6 +9,7 @@ status transitions here.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from deskweave_contracts import (
     ErrorInfo,
@@ -118,9 +119,20 @@ class WorkflowEngine:
         return run
 
     async def list_tasks(
-        self, *, run_id: str | None = None, limit: int | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        statuses: Sequence[TaskStatus] | None = None,
+        limit: int | None = None,
     ) -> list[TaskRecord]:
-        return await self._tasks.list(run_id=run_id, limit=limit)
+        return await self._tasks.list(run_id=run_id, statuses=statuses, limit=limit)
+
+    async def get_task(self, task_id: str) -> TaskRecord:
+        """Return one task or raise ``NotFoundError``."""
+        return await self._tasks.get(task_id)
+
+    async def get_run(self, run_id: str) -> WorkflowRunRecord:
+        return await self._runs.get(run_id)
 
     async def list_runs(self, *, limit: int | None = None) -> list[WorkflowRunRecord]:
         return await self._runs.list(limit=limit)

@@ -30,7 +30,12 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra -p no:cacheprovider"
+pythonpath = ["tests"]
 filterwarnings = ["error::DeprecationWarning:deskweave_*"]
+markers = [
+    "network: talks to a real external service (DNS, search provider, HTTP); enabled with DESKWEAVE_NETWORK_TESTS=1",
+    "blender: launches a real Blender process; enabled with DESKWEAVE_BLENDER_TESTS=1",
+]
 
 [tool.ruff]
 line-length = 100
@@ -44,6 +49,7 @@ src = [
     "adapters/browser/src",
     "adapters/blender/src",
     "adapters/filesystem/src",
+    "adapters/wikimedia/src",
     "plugins/anime-modeling/src",
     "tests",
 ]

@@ -29,7 +29,7 @@ from deskweave_contracts import (
     new_execution_id,
 )
 
-from .artifacts import ArtifactStore
+from .artifacts import ArtifactOpener, ArtifactStore, ImageDownloader, ensure_artifact_root
 from .config import RuntimeConfig
 from .core import AdapterHealth, ComponentHealth, HealthState, RuntimeHealth
 from .events import EventBus
@@ -44,6 +44,7 @@ from .persistence import (
     TaskRepository,
     WorkflowRunRepository,
 )
+from .references import RecoveryOutcome, ReferenceService
 from .workflow import WorkflowEngine
 
 __version__ = "0.0.1"
@@ -63,6 +64,7 @@ class Runtime:
         self._state = RuntimeState.CREATED
         self._logger: logging.Logger = get_logger("runtime")
         self._started_at: datetime | None = None
+        self._recovery: list[RecoveryOutcome] | None = None
 
         self._database = Database(config.resolved_database_path)
         self._events = EventBus()
@@ -76,17 +78,31 @@ class Runtime:
         self._permissions = PermissionManager(
             grant_repository=self._grants_repo, logger=get_logger("permissions")
         )
+        self._artifact_root = ensure_artifact_root(config.data_dir)
+        self._artifacts = ArtifactStore(
+            self._artifacts_repo,
+            self._events,
+            allowed_roots=[*_default_allowed_roots(config), self._artifact_root],
+            downloader=ImageDownloader(self._artifact_root),
+            logger=get_logger("artifacts"),
+        )
+        self._opener = ArtifactOpener(self._artifacts, logger=get_logger("artifacts.open"))
         self._registry = AdapterRegistry(
-            permission_checker=self._permissions, logger=get_logger("registry")
+            permission_checker=self._permissions,
+            resource_resolver=self._artifacts.resolve_path,
+            logger=get_logger("registry"),
         )
         self._workflow = WorkflowEngine(
             self._tasks, self._runs, self._events, logger=get_logger("workflow")
         )
-        self._artifacts = ArtifactStore(
-            self._artifacts_repo,
-            self._events,
-            allowed_roots=_default_allowed_roots(config),
-            logger=get_logger("artifacts"),
+        self._references = ReferenceService(
+            workflow=self._workflow,
+            artifacts=self._artifacts,
+            registry=self._registry,
+            permissions=self._permissions,
+            events=self._events,
+            execution_recorder=self._record_execution,
+            logger=get_logger("references"),
         )
 
     # -- construction -----------------------------------------------------
@@ -122,11 +138,40 @@ class Runtime:
         """Tear down the runtime. Idempotent."""
         if self._state is RuntimeState.CLOSED:
             return
+        await self._references.shutdown()
         await self._disconnect_all()
         await self._events.publish(Event(type=EventType.RUNTIME_STOPPED, payload={}))
         await self._database.close()
         self._state = RuntimeState.CLOSED
         self._logger.info("runtime closed")
+
+    async def recover(self) -> list[RecoveryOutcome]:
+        """Reconcile tasks that a previous process left non-terminal.
+
+        Must run **after** the application has registered its adapters (recovery
+        asks the target adapter to verify what it may already have produced) and
+        **before** the runtime starts serving requests, so it can never race a
+        live collection or confirmation.
+
+        Returns one outcome per reconciled task. Never raises for a single bad
+        task: a database that cannot be reconciled must not keep the app closed.
+        """
+        if self._state is not RuntimeState.RUNNING:
+            raise LifecycleError("runtime must be started before recovery runs")
+        self._recovery = await self._references.recover_interrupted()
+        if self._recovery:
+            self._logger.warning(
+                "recovered %d interrupted task(s) from the previous run",
+                len(self._recovery),
+            )
+        else:
+            self._logger.info("no interrupted tasks to recover")
+        return self._recovery
+
+    @property
+    def recovery_report(self) -> list[RecoveryOutcome]:
+        """The outcomes of the last :meth:`recover` call (empty before it runs)."""
+        return list(self._recovery or [])
 
     async def _disconnect_all(self) -> None:
         for adapter in list(self._registry):
@@ -165,6 +210,15 @@ class Runtime:
         return self._artifacts
 
     @property
+    def opener(self) -> ArtifactOpener:
+        """Hands a verified artifact file to the operating system."""
+        return self._opener
+
+    @property
+    def references(self) -> ReferenceService:
+        return self._references
+
+    @property
     def executions(self) -> ExecutionRepository:
         return self._executions_repo
 
@@ -196,6 +250,16 @@ class Runtime:
         )
         return adapter
 
+    def register_collection_source(self, source: str, adapter_id: str) -> None:
+        """Declare which connector serves a reference-collection source.
+
+        Composition-root API, called next to ``register_adapter``. It exists so a
+        new source can be added without teaching the workflow the name of any
+        concrete connector: the runtime core knows that sources exist, the
+        composition root knows which ones.
+        """
+        self._references.register_source(source, adapter_id)
+
     async def list_adapters(self) -> list[AdapterDescriptor]:
         return self._registry.list_descriptors()
 
@@ -215,6 +279,7 @@ class Runtime:
                     execution_id=new_execution_id(),
                     adapter_id=adapter_id,
                     capability=request.capability,
+                    task_id=request.task_id,
                     ok=result.ok,
                     error=result.error,
                     created_at=result.started_at,
@@ -245,6 +310,8 @@ class Runtime:
             for descriptor in self._registry.list_descriptors()
         ]
 
+        recovery_state, recovery_detail = self._recovery_health()
+
         components = [
             ComponentHealth(
                 name="database",
@@ -260,6 +327,11 @@ class Runtime:
                 name="permissions",
                 state=HealthState.OK,
                 detail="policy active",
+            ),
+            ComponentHealth(
+                name="recovery",
+                state=recovery_state,
+                detail=recovery_detail,
             ),
         ]
 
@@ -284,6 +356,17 @@ class Runtime:
         if self._started_at is None:
             return 0.0
         return (datetime.now(UTC) - self._started_at).total_seconds()
+
+    def _recovery_health(self) -> tuple[HealthState, str]:
+        """Describe the last recovery pass, for ``/health``."""
+        if self._recovery is None:
+            return HealthState.OK, "not run yet"
+        if not self._recovery:
+            return HealthState.OK, "no interrupted tasks found"
+        errors = [outcome for outcome in self._recovery if outcome.action == "error"]
+        summary = ", ".join(f"{outcome.task_id}={outcome.action}" for outcome in self._recovery[:5])
+        state = HealthState.DEGRADED if errors else HealthState.OK
+        return state, f"{len(self._recovery)} task(s) reconciled at startup ({summary})"
 
 
 def _default_allowed_roots(config: RuntimeConfig) -> list[Path]:

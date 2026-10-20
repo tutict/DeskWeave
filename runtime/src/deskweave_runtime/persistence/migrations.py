@@ -97,8 +97,17 @@ _INITIAL_SCHEMA: tuple[str, ...] = (
 )
 
 
+_ARTIFACT_TASK_LINK: tuple[str, ...] = (
+    # Reference candidates belong to the task that collected them. Without this
+    # link, "confirm these ids for this task" could only be trusted on the client.
+    "ALTER TABLE artifact ADD COLUMN task_id TEXT",
+    "CREATE INDEX idx_artifact_task_id ON artifact (task_id)",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="initial_schema", statements=_INITIAL_SCHEMA),
+    Migration(version=2, name="artifact_task_link", statements=_ARTIFACT_TASK_LINK),
 )
 
 

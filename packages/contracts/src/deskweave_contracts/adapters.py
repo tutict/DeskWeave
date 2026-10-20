@@ -71,6 +71,10 @@ class OperationRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(default=None, gt=0)
     reason: str | None = None
+    task_id: str | None = Field(
+        default=None,
+        description="Workflow task this execution belongs to, if any (audit + authorisation).",
+    )
 
 
 class OperationResult(BaseModel):

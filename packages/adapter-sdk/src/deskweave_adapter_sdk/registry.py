@@ -13,7 +13,7 @@ from collections.abc import Iterator
 
 from deskweave_contracts import AdapterDescriptor, ConflictError, NotFoundError
 
-from .base import Adapter, PermissionChecker
+from .base import Adapter, PermissionChecker, ResourceResolver
 
 
 class AdapterRegistry:
@@ -23,10 +23,12 @@ class AdapterRegistry:
         self,
         *,
         permission_checker: PermissionChecker | None = None,
+        resource_resolver: ResourceResolver | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._adapters: dict[str, Adapter] = {}
         self._permission_checker = permission_checker
+        self._resource_resolver = resource_resolver
         self._logger = logger or logging.getLogger("deskweave.registry")
 
     def register(self, adapter: Adapter, *, replace: bool = False) -> None:
@@ -42,6 +44,7 @@ class AdapterRegistry:
                 details={"adapter_id": adapter_id},
             )
         adapter.set_permission_checker(self._permission_checker)
+        adapter.set_resource_resolver(self._resource_resolver)
         self._adapters[adapter_id] = adapter
         self._logger.debug("registered adapter %s", adapter_id)
 
@@ -79,6 +82,12 @@ class AdapterRegistry:
         self._permission_checker = checker
         for adapter in self._adapters.values():
             adapter.set_permission_checker(checker)
+
+    def set_resource_resolver(self, resolver: ResourceResolver | None) -> None:
+        """Set the artifact resolver and propagate it to every adapter."""
+        self._resource_resolver = resolver
+        for adapter in self._adapters.values():
+            adapter.set_resource_resolver(resolver)
 
     def __contains__(self, adapter_id: object) -> bool:
         return adapter_id in self._adapters

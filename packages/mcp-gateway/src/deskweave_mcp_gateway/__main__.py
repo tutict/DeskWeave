@@ -9,6 +9,7 @@ import asyncio
 import sys
 
 from deskweave_runtime import Runtime, RuntimeConfig, configure_logging, get_logger
+from deskweave_runtime.bootstrap import register_default_adapters
 
 from .server import build_server
 
@@ -20,6 +21,7 @@ async def _run() -> int:
 
     runtime = await Runtime.create(config)
     await runtime.start()
+    await register_default_adapters(runtime, logger=logger)
     try:
         server = build_server(runtime)
         logger.info("MCP gateway ready (db=%s)", config.resolved_database_path)

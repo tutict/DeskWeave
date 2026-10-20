@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "deskweave-contracts",
     "deskweave-adapter-sdk",
+    "playwright>=1.64.0",
 ]
 
 [tool.uv.sources]

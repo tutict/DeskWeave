@@ -117,6 +117,26 @@ class PermissionDeniedError(DeskWeaveError):
     code = "permission_denied"
 
 
+class UnsafeResourceError(DeskWeaveError):
+    """A remote or local resource failed safety checks (protocol, host, size, type).
+
+    Raised when a URL points at a private address, a non-HTTP scheme, an oversized
+    body or a file whose bytes do not match a supported image format.
+    """
+
+    code = "unsafe_resource"
+
+
+class BrowserAccessDeniedError(DeskWeaveError):
+    """A site refused automated access or asked for human verification.
+
+    DeskWeave does **not** try to bypass captchas or consent walls; the user has to
+    intervene, so this error is surfaced as actionable instead of retried.
+    """
+
+    code = "browser_access_denied"
+
+
 class NotImplementedYetError(DeskWeaveError):
     """Explicit marker for functionality that is planned but not implemented.
 
@@ -126,11 +146,24 @@ class NotImplementedYetError(DeskWeaveError):
     code = "not_implemented"
 
 
+class ArtifactOpenError(DeskWeaveError):
+    """The operating system refused to open or reveal an artifact.
+
+    Distinct from "the artifact does not exist": the file was resolved and
+    verified, but handing it to the platform failed (no handler registered, the
+    file manager is unavailable, the process could not be spawned).
+    """
+
+    code = "artifact_open_failed"
+
+
 __all__ = [
     "AdapterConnectionError",
     "AdapterError",
     "AdapterExecutionError",
     "AdapterTimeoutError",
+    "ArtifactOpenError",
+    "BrowserAccessDeniedError",
     "ConfigError",
     "ConflictError",
     "DeskWeaveError",
@@ -140,5 +173,6 @@ __all__ = [
     "NotImplementedYetError",
     "PermissionDeniedError",
     "PersistenceError",
+    "UnsafeResourceError",
     "ValidationError",
 ]
