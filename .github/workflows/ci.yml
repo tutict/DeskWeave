@@ -18,10 +18,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Pinned, not `ubuntu-latest`. GitHub is rolling `ubuntu-latest` from 24.04 to
+# 26.04 between 2026-10-19 and 2026-11-19, so during that window the same commit
+# could land on either image and fail for reasons that have nothing to do with
+# the change. Pinning to the destination removes the coin flip now instead of on
+# the day the migration completes. The Tauri system packages below were checked
+# against the 26.04 (`resolute`) archive before switching.
+
 jobs:
   python:
     name: Python (lint + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -56,13 +63,17 @@ jobs:
 
   frontend:
     name: Frontend (typecheck + build + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
+      # v6, not v5: v5 only moved the action onto Node 24, while v6 is the first
+      # major that supports pnpm 11 (which the `version` input below pins). The
+      # old v4 declared `runs.using: node20`, a runtime GitHub removed on
+      # 2026-09-16 and was forcing onto Node 24 anyway.
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.25.0
 
@@ -89,7 +100,7 @@ jobs:
 
   rust:
     name: Rust shell (check + format + unit tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
