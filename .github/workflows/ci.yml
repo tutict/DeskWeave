@@ -2,9 +2,17 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    # The feature branch is listed explicitly so that the first real run can be
+    # triggered by a push, without touching `main` and without opening up every
+    # branch. Narrow this back to ["main"] once the branch has been merged.
+    branches: ["main", "feat/phase-2-baseline"]
   pull_request:
   workflow_dispatch:
+
+# Least privilege: every job only reads the repository. No secrets are used, and
+# nothing here pushes, publishes or comments.
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,6 +22,7 @@ jobs:
   python:
     name: Python (lint + tests)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -22,8 +31,16 @@ jobs:
         with:
           enable-cache: true
 
+      # `.python-version` pins 3.12; installing it explicitly keeps CI from
+      # silently using whatever interpreter the runner happens to ship.
+      - name: Install the pinned Python
+        run: uv python install
+
+      # ``--locked`` (not ``--frozen``): it fails when the lockfile would have to
+      # change, so a forgotten `uv lock` is caught here instead of silently
+      # resolving against a stale lock.
       - name: Sync workspace
-        run: uv sync --all-packages --frozen
+        run: uv sync --all-packages --locked
 
       - name: Ruff lint
         run: uv run ruff check .
@@ -31,12 +48,16 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+      # Tests that need a real browser or a real Blender are opt-in
+      # (DESKWEAVE_NETWORK_TESTS=1 / DESKWEAVE_BLENDER_TESTS=1) and are reported
+      # as SKIPPED here, never as passed. See docs/development/getting-started.md.
       - name: Pytest
         run: uv run pytest
 
   frontend:
     name: Frontend (typecheck + build + tests)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -65,3 +86,48 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+  rust:
+    name: Rust shell (check + format + unit tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # Tauri 2 compiles against WebKitGTK on Linux. Without these the `tauri`
+      # crate fails at build-script time, not in our own code.
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev patchelf
+
+      # The hosted runner ships rustup; using it avoids pinning a third-party
+      # action to a moving branch.
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+          rustc --version
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # `cargo check` builds the debug profile, which loads the frontend from
+      # `devUrl` instead of embedding `dist/`, so no frontend build is needed.
+      # `--all-targets` covers the lib, the bin and the test targets of the
+      # Tauri crate itself (verified locally: the build script runs and the
+      # `tauri` dependency is compiled).
+      - name: Check
+        run: cargo check --all-targets --locked
+        working-directory: apps/desktop/src-tauri
+
+      - name: Format check
+        run: cargo fmt --check
+        working-directory: apps/desktop/src-tauri
+
+      - name: Unit tests
+        run: cargo test --lib --locked
+        working-directory: apps/desktop/src-tauri
