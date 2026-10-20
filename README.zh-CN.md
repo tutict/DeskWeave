@@ -2,11 +2,15 @@
 
 [English](README.md) · **简体中文**
 
+[![CI](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml/badge.svg)](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml)
+
 **本地优先的 Agent 桌面协作基础设施。**
 
 DeskWeave 把 AI Agent、桌面应用、工作流和你自己连在一起——全部跑在你这台机器上，没有托管的控制平面。Agent 说 MCP；核心运行时掌握状态、权限与审计；Tauri 外壳给你一扇看见两者的真窗口。
 
 > 状态：**Phase 2 —— 用「接入第二个来源」来验证可扩展性。** Phase 1.5 的闭环依然成立：Agent 收集参考图，图片落进本地 artifact 仓库，**由你**挑选要用的那几张，然后 Blender 才会按这个选择建立参考平面。Phase 2 要回答的问题是「加新能力是否必须改运行时核心」，答案是能，而且做法是接入了第二个图源（`wikimedia`，公开 Commons API，无需密钥）：工作流、MCP 网关、控制 API、UI **一行都没改**，只在组装根加了一条 `来源 → 连接器` 映射。
+>
+> 流水线是绿的：Python、前端、Rust 三个 job 在每次 push 与 PR 上跑，平台为 Ubuntu。真实环境测试——真浏览器、真 Blender、真 Commons API——仍是显式开启的，因为它们需要网络和本机 Blender；CI 不假装覆盖它们。
 
 ## 能力矩阵
 
@@ -79,7 +83,7 @@ Codex / Agent ──MCP/stdio──► mcp-gateway ──► Runtime ──► �
 - [参考图工作流](docs/architecture/reference-workflow.md)——这条闭环逐步拆解
 - [Adapter SDK](docs/architecture/adapter-sdk.md)
 - [工作流状态机](docs/architecture/workflow-state-machine.md)
-- 连接器：[browser](docs/development/browser-connector.md) · [Blender](docs/development/blender-connector.md)
+- 连接器：[browser](docs/development/browser-connector.md) · [Wikimedia Commons](docs/development/wikimedia-connector.md) · [Blender](docs/development/blender-connector.md)
 - 自己写一个：[连接器开发指南](docs/development/writing-an-adapter.md)
 - 决策记录：[Tauri](docs/decisions/0001-desktop-framework-tauri.md) ·
   [Python 核心](docs/decisions/0002-python-core-runtime.md) ·
@@ -124,7 +128,7 @@ runtime/                Python 核心运行时与控制 API
 packages/{contracts,adapter-sdk,mcp-gateway,plugin-sdk}
 adapters/{browser,wikimedia,blender,filesystem}
 plugins/anime-modeling
-scripts/ui_smoke.py
+scripts/{ci_local.py,ui_smoke.py}
 tests/{unit,contract,integration,e2e}
 docs/{architecture,decisions,development}
 ```
@@ -133,18 +137,23 @@ docs/{architecture,decisions,development}
 
 | 任务 | 命令 |
 | --- | --- |
+| 严格按锁文件安装 | `uv sync --all-packages --locked` |
 | Python 静态检查 | `uv run ruff check .` |
 | Python 格式检查 | `uv run ruff format --check .` |
 | Python 测试 | `uv run pytest` |
 | 真实浏览器测试 | `DESKWEAVE_NETWORK_TESTS=1 uv run pytest tests/integration/test_browser_real.py` |
+| 真实 Commons 测试 | `DESKWEAVE_NETWORK_TESTS=1 uv run pytest tests/integration/test_wikimedia_real.py` |
 | 真实 Blender 测试 | `DESKWEAVE_BLENDER_TESTS=1 uv run pytest tests/integration/test_blender_real.py` |
 | 全链路 | `DESKWEAVE_NETWORK_TESTS=1 DESKWEAVE_BLENDER_TESTS=1 uv run pytest tests/e2e` |
 | 前端构建 | `corepack pnpm build` |
 | 前端测试 | `corepack pnpm test` |
 | 前端 lint / 格式 | `corepack pnpm lint` / `corepack pnpm format:check` |
-| Rust 桥 | `cargo test --lib`（在 `apps/desktop/src-tauri`） |
+| Rust 检查 | `cargo check --all-targets --locked`（在 `apps/desktop/src-tauri`） |
+| Rust 格式检查 | `cargo fmt --check` |
+| Rust 桥测试 | `cargo test --lib --locked` |
 | 启动 MCP Server | `uv run python -m deskweave_mcp_gateway` |
 | 真实 UI 冒烟 | `uv run python scripts/ui_smoke.py` |
+| 本地跑 CI（与 GitHub Actions 同步骤） | `uv run python scripts/ci_local.py` |
 
 ## 许可证
 

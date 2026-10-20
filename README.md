@@ -2,6 +2,8 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml/badge.svg)](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml)
+
 **Local-first Agent Desktop Infrastructure.**
 
 DeskWeave connects AI agents, desktop applications, workflows and you — on your
@@ -16,6 +18,11 @@ permissions and audit; a Tauri shell gives you a real window onto both.
 > answered it by adding a second image source (`wikimedia`, public Commons API, no
 > key) that needed **no change** to the workflow, the MCP gateway, the control API
 > or the UI — only a `source → connector` mapping in the composition root.
+>
+> The pipeline is green: three jobs (Python, frontend, Rust) run on every push
+> and pull request, on Ubuntu. The real-world tests — a live browser, a live
+> Blender, the live Commons API — stay opt-in, because they need network access
+> and a Blender install; CI does not pretend to cover them.
 
 ## Capability matrix
 
@@ -57,6 +64,7 @@ uv run pytest
 uv run python -m deskweave_runtime.service --announce --port 8787
 
 # Desktop UI (second shell)
+corepack enable
 corepack pnpm install
 corepack pnpm build && corepack pnpm test
 cd apps/desktop && corepack pnpm tauri dev
@@ -91,6 +99,7 @@ Read more:
 - [Adapter SDK](docs/architecture/adapter-sdk.md)
 - [Workflow state machine](docs/architecture/workflow-state-machine.md)
 - Connectors: [browser](docs/development/browser-connector.md) ·
+  [Wikimedia Commons](docs/development/wikimedia-connector.md) ·
   [Blender](docs/development/blender-connector.md)
 - Writing your own: [writing an adapter](docs/development/writing-an-adapter.md)
 - Decisions: [Tauri](docs/decisions/0001-desktop-framework-tauri.md) ·
@@ -145,9 +154,9 @@ kill of the shell can still leave the runtime running (no Job Objects there, see
 apps/desktop            Tauri 2 + Vue 3 + TypeScript shell
 runtime/                Python core runtime and control API
 packages/{contracts,adapter-sdk,mcp-gateway,plugin-sdk}
-adapters/{browser,blender,filesystem}
+adapters/{browser,wikimedia,blender,filesystem}
 plugins/anime-modeling
-scripts/ui_smoke.py
+scripts/{ci_local.py,ui_smoke.py}
 tests/{unit,contract,integration,e2e}
 docs/{architecture,decisions,development}
 ```
@@ -156,17 +165,21 @@ docs/{architecture,decisions,development}
 
 | Task | Command |
 | --- | --- |
+| Install exactly the lockfile | `uv sync --all-packages --locked` |
 | Python lint | `uv run ruff check .` |
 | Python format check | `uv run ruff format --check .` |
 | Python tests | `uv run pytest` |
 | Real browser tests | `DESKWEAVE_NETWORK_TESTS=1 uv run pytest tests/integration/test_browser_real.py` |
+| Real Commons tests | `DESKWEAVE_NETWORK_TESTS=1 uv run pytest tests/integration/test_wikimedia_real.py` |
 | Real Blender tests | `DESKWEAVE_BLENDER_TESTS=1 uv run pytest tests/integration/test_blender_real.py` |
 | Full chain | `DESKWEAVE_NETWORK_TESTS=1 DESKWEAVE_BLENDER_TESTS=1 uv run pytest tests/e2e` |
 | Frontend build | `corepack pnpm build` |
 | CI, locally (same steps as GitHub Actions) | `uv run python scripts/ci_local.py` |
 | Frontend tests | `corepack pnpm test` |
 | Frontend lint / format | `corepack pnpm lint` / `corepack pnpm format:check` |
-| Rust bridge | `cargo test --lib` (in `apps/desktop/src-tauri`) |
+| Rust check | `cargo check --all-targets --locked` (in `apps/desktop/src-tauri`) |
+| Rust format check | `cargo fmt --check` |
+| Rust bridge tests | `cargo test --lib --locked` |
 | MCP server | `uv run python -m deskweave_mcp_gateway` |
 | Real UI smoke | `uv run python scripts/ui_smoke.py` |
 
