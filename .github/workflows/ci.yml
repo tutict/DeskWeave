@@ -2,10 +2,16 @@ name: CI
 
 on:
   push:
-    # The feature branch is listed explicitly so that the first real run can be
-    # triggered by a push, without touching `main` and without opening up every
-    # branch. Narrow this back to ["main"] once the branch has been merged.
-    branches: ["main", "feat/phase-2-baseline"]
+    # Trunk only. The feature branch used to be listed here for exactly one
+    # reason: the repository had no `main` yet, so nothing could trigger the
+    # first real run. That run happened, twice failed and once passed, and the
+    # entry has done its job.
+    #
+    # Note the consequence: `main` still does not exist — the first push created
+    # `feat/phase-2-baseline` and GitHub made *that* the default branch — so
+    # until a trunk is pushed, CI fires on pull requests and manual dispatch
+    # only, not on every commit.
+    branches: ["main"]
   pull_request:
   workflow_dispatch:
 

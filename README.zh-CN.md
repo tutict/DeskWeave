@@ -10,7 +10,7 @@ DeskWeave 把 AI Agent、桌面应用、工作流和你自己连在一起——�
 
 > 状态：**Phase 2 —— 用「接入第二个来源」来验证可扩展性。** Phase 1.5 的闭环依然成立：Agent 收集参考图，图片落进本地 artifact 仓库，**由你**挑选要用的那几张，然后 Blender 才会按这个选择建立参考平面。Phase 2 要回答的问题是「加新能力是否必须改运行时核心」，答案是能，而且做法是接入了第二个图源（`wikimedia`，公开 Commons API，无需密钥）：工作流、MCP 网关、控制 API、UI **一行都没改**，只在组装根加了一条 `来源 → 连接器` 映射。
 >
-> 流水线是绿的：Python、前端、Rust 三个 job 在每次 push 与 PR 上跑，平台为 Ubuntu。真实环境测试——真浏览器、真 Blender、真 Commons API——仍是显式开启的，因为它们需要网络和本机 Blender；CI 不假装覆盖它们。
+> 流水线是绿的：Python、前端、Rust 三个 job 在每次推送到 `main` 与每个 PR 上跑，平台为 Ubuntu。真实环境测试——真浏览器、真 Blender、真 Commons API——仍是显式开启的，因为它们需要网络和本机 Blender；CI 不假装覆盖它们。
 
 ## 能力矩阵
 

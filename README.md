@@ -20,9 +20,9 @@ permissions and audit; a Tauri shell gives you a real window onto both.
 > or the UI — only a `source → connector` mapping in the composition root.
 >
 > The pipeline is green: three jobs (Python, frontend, Rust) run on every push
-> and pull request, on Ubuntu. The real-world tests — a live browser, a live
-> Blender, the live Commons API — stay opt-in, because they need network access
-> and a Blender install; CI does not pretend to cover them.
+> to `main` and on every pull request, on Ubuntu. The real-world tests — a live
+> browser, a live Blender, the live Commons API — stay opt-in, because they need
+> network access and a Blender install; CI does not pretend to cover them.
 
 ## Capability matrix
 
