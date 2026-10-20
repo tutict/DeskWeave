@@ -366,25 +366,21 @@ mod tests {
     /// immediately. That turned the escalation test into a race — it passed on
     /// Windows and reported `Graceful` on Linux. Whatever is spawned here has to
     /// outlive the grace period on every platform CI runs on.
+    ///
+    /// `cfg!` rather than `#[cfg]` on purpose: both branches are type-checked on
+    /// every platform, so a mistake in the branch you cannot run here still fails
+    /// the local build instead of waiting for CI.
     fn sleeping_child() -> Child {
-        let mut command = match which_python() {
-            Some(python) => {
-                let mut command = Command::new(python);
-                command.args(["-c", "import time; time.sleep(60)"]);
-                command
-            }
-            #[cfg(windows)]
-            None => {
-                let mut command = Command::new("ping");
-                command.args(["-n", "60", "127.0.0.1"]);
-                command
-            }
-            #[cfg(not(windows))]
-            None => {
-                let mut command = Command::new("sleep");
-                command.arg("60");
-                command
-            }
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("ping");
+            command.args(["-n", "60", "127.0.0.1"]);
+            command
+        } else {
+            // `sh` is guaranteed by POSIX; naming `sleep` alone would depend on
+            // how the runner's PATH is assembled.
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 60"]);
+            command
         };
         command
             .stdin(Stdio::null())
