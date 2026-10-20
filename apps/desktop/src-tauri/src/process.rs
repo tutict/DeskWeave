@@ -355,24 +355,52 @@ fn probe_health(base_url: &str, token: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::{Command, Stdio};
+    use std::process::{Child, Command, Stdio};
     use std::time::Duration;
 
     use super::{RuntimeProcess, StopOutcome};
-    /// A stand-in for the runtime: alive, but not reachable over HTTP.
-    fn unreachable_process() -> RuntimeProcess {
-        let child = Command::new("ping")
-            .args(["-n", "60", "127.0.0.1"])
+    /// A process that is still alive when the grace period expires.
+    ///
+    /// The obvious `ping -n 60 127.0.0.1` is Windows-only syntax: on Unix `-n`
+    /// means "numeric output" and `60` is parsed as the host, so ping exits
+    /// immediately. That turned the escalation test into a race — it passed on
+    /// Windows and reported `Graceful` on Linux. Whatever is spawned here has to
+    /// outlive the grace period on every platform CI runs on.
+    fn sleeping_child() -> Child {
+        let mut command = match which_python() {
+            Some(python) => {
+                let mut command = Command::new(python);
+                command.args(["-c", "import time; time.sleep(60)"]);
+                command
+            }
+            #[cfg(windows)]
+            None => {
+                let mut command = Command::new("ping");
+                command.args(["-n", "60", "127.0.0.1"]);
+                command
+            }
+            #[cfg(not(windows))]
+            None => {
+                let mut command = Command::new("sleep");
+                command.arg("60");
+                command
+            }
+        };
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("could not spawn the test child");
+            .expect("could not spawn the test child")
+    }
+
+    /// A stand-in for the runtime: alive, but not reachable over HTTP.
+    fn unreachable_process() -> RuntimeProcess {
         RuntimeProcess {
-            child: Some(child),
+            child: Some(sleeping_child()),
             job: None,
-            // Port 9 (discard) is closed on a default Windows install, so the
-            // graceful request fails immediately instead of hanging.
+            // Port 9 (discard) is closed on a default install, so the graceful
+            // request fails immediately instead of hanging.
             base_url: "http://127.0.0.1:9".to_string(),
             token: "test-token".to_string(),
             error: None,
