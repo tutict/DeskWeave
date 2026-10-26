@@ -8,7 +8,7 @@ rest of the runtime works with typed models.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -343,6 +343,37 @@ class PermissionGrantRepository:
     async def list(self) -> list[dict[str, Any]]:
         rows = await self._db.fetchall("SELECT * FROM permission_grant ORDER BY granted_at DESC")
         return [dict(row) for row in rows]
+
+    async def delete(self, adapter_id: str, capabilities: Iterable[str] | None = None) -> list[str]:
+        """Remove grants and return the ids that were actually removed.
+
+        Two statements rather than ``DELETE ... RETURNING``: the older statement
+        form keeps working on any SQLite this project supports, and the SELECT
+        makes the return value a fact about what existed instead of a count the
+        caller has to interpret.
+        """
+        wanted = None if capabilities is None else tuple(capabilities)
+        if wanted is None:
+            rows = await self._db.fetchall(
+                "SELECT grant_id FROM permission_grant WHERE adapter_id = ?", (adapter_id,)
+            )
+        elif not wanted:
+            return []
+        else:
+            placeholders = ", ".join("?" for _ in wanted)
+            rows = await self._db.fetchall(
+                f"SELECT grant_id FROM permission_grant WHERE adapter_id = ?"
+                f" AND capability IN ({placeholders})",
+                (adapter_id, *wanted),
+            )
+        grant_ids = [str(row["grant_id"]) for row in rows]
+        if not grant_ids:
+            return []
+        placeholders = ", ".join("?" for _ in grant_ids)
+        await self._db.execute(
+            f"DELETE FROM permission_grant WHERE grant_id IN ({placeholders})", tuple(grant_ids)
+        )
+        return grant_ids
 
 
 class ExecutionRepository:
