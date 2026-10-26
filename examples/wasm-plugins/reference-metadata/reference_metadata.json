@@ -1,0 +1,76 @@
+{
+  "plugin_id": "reference-metadata",
+  "name": "Reference metadata validator",
+  "version": "0.1.0",
+  "interface_version": 1,
+  "entry": "dw_invoke",
+  "wasm_path": "reference_metadata.wasm",
+  "wasm_sha256": "b730b7df9408189c16cd360804bde33a28ad69060a049c6cc55c9539fe9e94c8",
+  "description": "Validates reference-image metadata through the host capability reference.metadata.validate. Pure computation plus one host call; no filesystem, network or Blender access.",
+  "requested_capabilities": ["reference.metadata.validate"],
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["images"],
+    "properties": {
+      "images": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_id", "title", "width", "height"],
+          "properties": {
+            "artifact_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "width": { "type": "integer", "minimum": 1, "maximum": 100000 },
+            "height": { "type": "integer", "minimum": 1, "maximum": 100000 },
+            "license": { "type": "string", "maxLength": 100 },
+            "author": { "type": "string", "maxLength": 200 }
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["checked", "accepted", "rejected"],
+    "properties": {
+      "checked": { "type": "integer", "minimum": 0 },
+      "accepted": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["index", "artifact_id"],
+          "properties": {
+            "index": { "type": "integer", "minimum": 0 },
+            "artifact_id": { "type": "string" }
+          }
+        }
+      },
+      "rejected": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["index", "artifact_id", "problems"],
+          "properties": {
+            "index": { "type": "integer", "minimum": 0 },
+            "artifact_id": { "type": "string" },
+            "problems": { "type": "array" }
+          }
+        }
+      }
+    }
+  },
+  "limits": {
+    "timeout_ms": 2000,
+    "fuel": 50000000,
+    "max_memory_bytes": 16777216,
+    "max_input_bytes": 262144,
+    "max_output_bytes": 262144
+  }
+}

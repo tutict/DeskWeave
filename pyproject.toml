@@ -44,6 +44,7 @@ src = [
     "packages/contracts/src",
     "packages/adapter-sdk/src",
     "packages/plugin-sdk/src",
+    "packages/plugin-wasm/src",
     "packages/mcp-gateway/src",
     "runtime/src",
     "adapters/browser/src",

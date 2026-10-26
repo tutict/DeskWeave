@@ -1,0 +1,24 @@
+[project]
+name = "deskweave-plugin-wasm"
+version = "0.0.1"
+description = "WASM/WASI plugin runtime for DeskWeave: sandboxed execution, resource limits and host-mediated capabilities."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deskweave-contracts",
+    "deskweave-adapter-sdk",
+    "jsonschema>=4.26",
+    "pydantic>=2",
+    "wasmtime>=50.0.1,<51",
+]
+
+[tool.uv.sources]
+deskweave-contracts = { workspace = true }
+deskweave-adapter-sdk = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deskweave_plugin_wasm"]
