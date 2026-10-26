@@ -49,6 +49,7 @@ from .ids import (
     new_workflow_run_id,
 )
 from .permissions import (
+    DecisionVia,
     PermissionDecision,
     PermissionRequest,
     PermissionResult,
@@ -91,6 +92,7 @@ __all__ = [
     "ConfigError",
     "ConfirmRequest",
     "ConflictError",
+    "DecisionVia",
     "DeskWeaveError",
     "ErrorInfo",
     "Event",

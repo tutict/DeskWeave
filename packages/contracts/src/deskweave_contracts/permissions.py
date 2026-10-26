@@ -34,6 +34,11 @@ class PermissionScope(StrEnum):
     BROWSER_CONTROL = "browser:control"
     BLENDER_CONTROL = "blender:control"
     CODE_EXECUTION = "code:execution"
+    # A sandboxed plugin asking the host to run a capability on its behalf. The
+    # plugin has no direct access to the underlying resource, so this scope is
+    # about the *channel*, not the thing being touched; the host policy decides
+    # what (if anything) the channel may reach.
+    PLUGIN_HOST_CALL = "plugin:host_call"
 
 
 class PermissionRequest(BaseModel):
@@ -64,6 +69,27 @@ class PermissionDecision(StrEnum):
     REQUIRE_CONFIRMATION = "require_confirmation"
 
 
+class DecisionVia(StrEnum):
+    """*Why* the policy reached its decision — the provenance, not the answer.
+
+    ``ALLOW`` alone cannot distinguish "a person granted this" from "the default
+    rule for read-only operations happened to allow it". For an adapter those are
+    the same thing; for a sandboxed plugin they are not, because a plugin's
+    manifest can *declare* a capability and the only thing standing between that
+    declaration and execution is whether a human decision exists.
+
+    Recording the provenance lets the plugin host require a real decision without
+    changing adapter policy, and it makes the audit log answer "why" instead of
+    just "yes".
+    """
+
+    GRANT = "grant"
+    ONE_SHOT = "one_shot"
+    POLICY = "policy"
+    DENY = "deny"
+    CONFIRMATION = "require_confirmation"
+
+
 class PermissionResult(BaseModel):
     """Result of evaluating a :class:`PermissionRequest`."""
 
@@ -72,9 +98,13 @@ class PermissionResult(BaseModel):
     decision: PermissionDecision
     reason: str = ""
     grant_id: str | None = None
+    #: Where the decision came from. Left unset by third-party checkers, which is
+    #: why the plugin host treats "unset" as "not a human decision" and refuses.
+    via: DecisionVia | None = None
 
 
 __all__ = [
+    "DecisionVia",
     "PermissionDecision",
     "PermissionRequest",
     "PermissionResult",
