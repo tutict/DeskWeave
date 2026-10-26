@@ -135,6 +135,14 @@ def main() -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1360, "height": 980})
+            # The assertions below are written against the English UI, and the app
+            # now follows the host language, so pin it the way a user would: a
+            # stored choice wins over ``navigator.languages`` (see
+            # docs/development/i18n.md). Without this the run breaks on a machine
+            # whose Chromium reports ``zh-CN``.
+            page.add_init_script(
+                "try { localStorage.setItem('deskweave.locale', 'en-US'); } catch (e) {}"
+            )
             page.goto(web_url, wait_until="networkidle")
 
             page.get_by_role("button", name="References").click()

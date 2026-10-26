@@ -1,25 +1,33 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import AdapterList from "../components/AdapterList.vue";
 import type { AdapterDescriptor, RuntimeHealth } from "../lib/runtimeClient";
 
 defineProps<{ health: RuntimeHealth | null; adapters: AdapterDescriptor[] }>();
+
+const { t, n } = useI18n();
 </script>
 
 <template>
   <section class="overview">
     <article v-if="health" class="card">
       <header class="card__header">
-        <h2>Runtime health</h2>
-        <span class="card__meta">v{{ health.version }} · schema {{ health.schema_version }}</span>
+        <h2>{{ t("overview.healthTitle") }}</h2>
+        <span class="card__meta">
+          {{ t("overview.healthMeta", { version: health.version, schema: health.schema_version }) }}
+        </span>
       </header>
       <dl class="facts">
         <div>
-          <dt>Database</dt>
+          <dt>{{ t("overview.database") }}</dt>
           <dd class="mono">{{ health.database_path }}</dd>
         </div>
         <div>
-          <dt>Uptime</dt>
-          <dd>{{ health.uptime_seconds.toFixed(1) }}s</dd>
+          <dt>{{ t("overview.uptime") }}</dt>
+          <dd>
+            {{ t("overview.uptimeValue", { seconds: n(health.uptime_seconds, "decimal1") }) }}
+          </dd>
         </div>
       </dl>
       <ul class="components">
@@ -32,8 +40,10 @@ defineProps<{ health: RuntimeHealth | null; adapters: AdapterDescriptor[] }>();
 
     <article class="card">
       <header class="card__header">
-        <h2>Adapters</h2>
-        <span class="card__meta">{{ adapters.length }} registered</span>
+        <h2>{{ t("overview.adaptersTitle") }}</h2>
+        <span class="card__meta">
+          {{ t("overview.adaptersRegistered", { count: adapters.length }) }}
+        </span>
       </header>
       <AdapterList :adapters="adapters" />
     </article>

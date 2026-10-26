@@ -1,25 +1,29 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import EmptyState from "../components/EmptyState.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import type { TaskRecord } from "../lib/runtimeClient";
 
 defineProps<{ tasks: TaskRecord[] }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
   <section>
     <EmptyState
       v-if="tasks.length === 0"
-      title="No workflow tasks yet"
-      description="Tasks created by a workflow run will be listed here. Phase 0 does not run workflows yet."
+      :title="t('tasks.emptyTitle')"
+      :description="t('tasks.emptyDescription')"
     />
     <table v-else class="tasks">
       <thead>
         <tr>
-          <th>Task</th>
-          <th>Status</th>
-          <th>Run</th>
-          <th>Updated</th>
+          <th>{{ t("tasks.columnTask") }}</th>
+          <th>{{ t("tasks.columnStatus") }}</th>
+          <th>{{ t("tasks.columnRun") }}</th>
+          <th>{{ t("tasks.columnUpdated") }}</th>
         </tr>
       </thead>
       <tbody>

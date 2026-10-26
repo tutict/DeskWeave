@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import ErrorState from "./components/ErrorState.vue";
 import LoadingState from "./components/LoadingState.vue";
 import StatusBadge from "./components/StatusBadge.vue";
+import { appErrorMessage } from "./i18n/errors";
 import { connectionSource } from "./lib/runtimeClient";
 import { useRuntime } from "./lib/useRuntime";
 import LogsView from "./views/LogsView.vue";
@@ -14,13 +16,20 @@ import TasksView from "./views/TasksView.vue";
 
 type TabId = "overview" | "tasks" | "references" | "logs" | "settings";
 
-const tabs: { id: TabId; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "tasks", label: "Tasks" },
-  { id: "references", label: "References" },
-  { id: "logs", label: "Logs & preview" },
-  { id: "settings", label: "Settings" },
-];
+const { t } = useI18n();
+
+/**
+ * Labels are resolved inside a `computed`, not once at setup: `t()` reads the
+ * locale, so a language switch relabels the navigation without a remount, and the
+ * keys stay literal (checked at compile time) instead of being built by hand.
+ */
+const tabs = computed<readonly { id: TabId; label: string }[]>(() => [
+  { id: "overview", label: t("app.tabs.overview") },
+  { id: "tasks", label: t("app.tabs.tasks") },
+  { id: "references", label: t("app.tabs.references") },
+  { id: "logs", label: t("app.tabs.logs") },
+  { id: "settings", label: t("app.tabs.settings") },
+]);
 
 const active = ref<TabId>("overview");
 const { state, error, health, adapters, tasks, refresh } = useRuntime();
@@ -38,21 +47,21 @@ onMounted(refresh);
         <span class="brand__mark" aria-hidden="true">DW</span>
         <div>
           <h1>DeskWeave</h1>
-          <p class="brand__tagline">Local-first agent desktop infrastructure</p>
+          <p class="brand__tagline">{{ t("app.tagline") }}</p>
         </div>
       </div>
       <div class="topbar__status">
-        <span class="muted">runtime</span>
+        <span class="muted">{{ t("app.runtime") }}</span>
         <StatusBadge :status="runtimeState" />
-        <span class="muted">via {{ source }}</span>
+        <span class="muted">{{ t("app.via", { source }) }}</span>
         <button type="button" class="refresh" :disabled="state === 'loading'" @click="refresh">
-          Refresh
+          {{ t("common.refresh") }}
         </button>
       </div>
     </header>
 
     <div class="body">
-      <nav class="sidebar" aria-label="Sections">
+      <nav class="sidebar" :aria-label="t('app.sections')">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -66,11 +75,11 @@ onMounted(refresh);
       </nav>
 
       <main class="content">
-        <LoadingState v-if="state === 'loading'" message="Contacting the local runtime…" />
+        <LoadingState v-if="state === 'loading'" :message="t('app.contactingRuntime')" />
         <ErrorState
           v-else-if="state === 'error'"
-          title="Runtime unavailable"
-          :message="error ?? 'unknown error'"
+          :title="t('app.runtimeUnavailable')"
+          :message="appErrorMessage(error)"
           @retry="refresh"
         />
         <template v-else>

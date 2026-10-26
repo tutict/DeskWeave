@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import EmptyState from "../components/EmptyState.vue";
+
+const { t } = useI18n();
 </script>
 
 <template>
   <section>
-    <EmptyState
-      title="Execution logs and preview (placeholder)"
-      description="Execution records and the Blender preview will be shown here. It is not implemented in Phase 0."
-    />
+    <EmptyState :title="t('logs.title')" :description="t('logs.description')" />
   </section>
 </template>

@@ -1,12 +1,12 @@
 import { computed, onScopeDispose, reactive, ref, shallowRef } from "vue";
 
+import { toAppError, type AppError } from "../i18n/errors";
 import {
   cancelTask,
   confirmSelection,
   fetchArtifactPreview,
   fetchTaskViews,
   openArtifact,
-  RuntimeUnavailableError,
   startCollection,
   type ArtifactAction,
   type TaskView,
@@ -30,14 +30,13 @@ function isRunning(view: TaskView): boolean {
  */
 export function useReferences() {
   const state = ref<LoadState>("loading");
-  const error = ref<string | null>(null);
-  const offline = ref(false);
+  const error = ref<AppError | null>(null);
   const views = shallowRef<TaskView[]>([]);
   const selection = reactive<Record<string, string[]>>({});
   const previews = reactive<Record<string, string>>({});
-  const previewErrors = reactive<Record<string, string>>({});
+  const previewErrors = reactive<Record<string, AppError>>({});
   const loadingPreviews = reactive<Record<string, boolean>>({});
-  const openErrors = reactive<Record<string, string>>({});
+  const openErrors = reactive<Record<string, AppError>>({});
   const openingTaskId = ref<string | null>(null);
   const submitting = ref(false);
   const busyTaskId = ref<string | null>(null);
@@ -45,6 +44,9 @@ export function useReferences() {
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const hasRunningTask = computed(() => views.value.some(isRunning));
+
+  /** True when the last failure was "the runtime is not reachable at all". */
+  const offline = computed(() => error.value?.kind === "unavailable");
 
   function stopPolling(): void {
     if (timer !== null) {
@@ -74,7 +76,6 @@ export function useReferences() {
       const response = await fetchTaskViews();
       views.value = response.tasks;
       error.value = null;
-      offline.value = false;
       state.value = "ready";
       for (const view of response.tasks) {
         if (!(view.task.task_id in selection)) {
@@ -84,11 +85,10 @@ export function useReferences() {
     } catch (caught) {
       if (silent) {
         // A background poll must not wipe a usable screen; surface it softly.
-        error.value = describe(caught);
+        error.value = toAppError(caught);
         return;
       }
-      error.value = describe(caught);
-      offline.value = caught instanceof RuntimeUnavailableError;
+      error.value = toAppError(caught);
       state.value = "error";
     } finally {
       syncPolling();
@@ -111,8 +111,7 @@ export function useReferences() {
       syncPolling();
       return true;
     } catch (caught) {
-      error.value = describe(caught);
-      offline.value = caught instanceof RuntimeUnavailableError;
+      error.value = toAppError(caught);
       return false;
     } finally {
       submitting.value = false;
@@ -149,8 +148,7 @@ export function useReferences() {
       // confirm from a stale page). The error must be reported *after* the
       // refresh, because a successful refresh clears the banner.
       await refresh(true);
-      error.value = describe(caught);
-      offline.value = caught instanceof RuntimeUnavailableError;
+      error.value = toAppError(caught);
       return false;
     } finally {
       submitting.value = false;
@@ -168,8 +166,7 @@ export function useReferences() {
       return true;
     } catch (caught) {
       await refresh(true);
-      error.value = describe(caught);
-      offline.value = caught instanceof RuntimeUnavailableError;
+      error.value = toAppError(caught);
       return false;
     } finally {
       busyTaskId.value = null;
@@ -195,7 +192,7 @@ export function useReferences() {
       await openArtifact(artifactId, action);
       return true;
     } catch (caught) {
-      openErrors[taskId] = describe(caught);
+      openErrors[taskId] = toAppError(caught);
       return false;
     } finally {
       openingTaskId.value = null;
@@ -209,7 +206,7 @@ export function useReferences() {
       previews[artifactId] = await fetchArtifactPreview(artifactId);
       delete previewErrors[artifactId];
     } catch (caught) {
-      previewErrors[artifactId] = describe(caught);
+      previewErrors[artifactId] = toAppError(caught);
     } finally {
       delete loadingPreviews[artifactId];
     }
@@ -246,9 +243,4 @@ export function useReferences() {
     openProduced,
     stopPolling,
   };
-}
-
-function describe(caught: unknown): string {
-  if (caught instanceof Error) return caught.message;
-  return String(caught);
 }

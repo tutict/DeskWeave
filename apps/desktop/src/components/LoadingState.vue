@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 defineProps<{ message?: string }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
   <div class="state state--loading" role="status" aria-live="polite">
     <span class="spinner" aria-hidden="true"></span>
-    <p>{{ message ?? "Loading…" }}</p>
+    <p>{{ message ?? t("common.loading") }}</p>
   </div>
 </template>
 

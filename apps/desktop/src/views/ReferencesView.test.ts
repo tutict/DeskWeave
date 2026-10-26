@@ -274,7 +274,7 @@ describe("ReferencesView", () => {
     expect(wrapper.findAll("[role='checkbox']")).toHaveLength(2);
     expect(wrapper.find("[data-test='card-art_blend']").exists()).toBe(false);
     // The header must not count the blend file as a collected candidate either.
-    expect(wrapper.get(".task__meta").text()).toContain("2 candidate(s)");
+    expect(wrapper.get(".task__meta").text()).toContain("2 candidates");
   });
 
   it("describes the produced blend file with verifiable metadata", async () => {
@@ -285,7 +285,7 @@ describe("ReferencesView", () => {
     expect(produced.text()).toContain("4.0 KB");
     expect(produced.text()).toContain("created 2026-10-20T10:01:01+00:00");
     expect(produced.text()).toContain("application/x-blender");
-    expect(produced.text()).toContain("1 object(s): AnimeRef_0");
+    expect(produced.text()).toContain("1 object: AnimeRef_0");
     // A .blend is never offered as an inline image preview.
     expect(produced.find("img").exists()).toBe(false);
   });
@@ -362,7 +362,7 @@ describe("ReferencesView", () => {
   it("labels the failures block instead of printing a bare list", async () => {
     const wrapper = await mountWith([waitingTask()]);
 
-    expect(wrapper.get(".failures").text()).toContain("1 candidate(s) could not be saved");
+    expect(wrapper.get(".failures").text()).toContain("1 candidate could not be saved");
     expect(wrapper.get(".failures").text()).toContain("https://cdn.example.com/bad.png");
   });
 

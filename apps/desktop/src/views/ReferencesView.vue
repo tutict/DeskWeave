@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import EmptyState from "../components/EmptyState.vue";
 import ErrorState from "../components/ErrorState.vue";
 import LoadingState from "../components/LoadingState.vue";
 import ReferenceCard from "../components/ReferenceCard.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import { formatEventTime } from "../i18n";
+import { appErrorMessage, taskErrorText } from "../i18n/errors";
 import type { ArtifactView, CandidateFailure, TaskView } from "../lib/runtimeClient";
 import { DEFAULT_LIMIT, useReferences } from "../lib/useReferences";
+
+const { t, n } = useI18n();
 
 const {
   state,
@@ -113,10 +118,32 @@ function objectNamesOf(view: TaskView): string[] {
 }
 
 function formatBytes(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "size unknown";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value === null || !Number.isFinite(value)) return t("references.sizeUnknown");
+  if (value < 1024) return t("common.units.bytes", { value });
+  if (value < 1024 * 1024) {
+    return t("common.units.kilobytes", { value: n(value / 1024, "decimal1") });
+  }
+  return t("common.units.megabytes", { value: n(value / (1024 * 1024), "decimal1") });
+}
+
+/** A captured preview failure, rendered in the active language. */
+function previewErrorOf(artifactId: string): string | undefined {
+  const failure = previewErrors[artifactId];
+  return failure ? appErrorMessage(failure) : undefined;
+}
+
+function candidateCountOf(view: TaskView): number {
+  return imageCandidatesOf(view).length;
+}
+
+/** How many images the plane actually received, per the runtime's own record. */
+function placedImageCountOf(view: TaskView): number {
+  return planeOf(view).image_count ?? candidateCountOf(view);
+}
+
+/** The confirmation timestamp is an event the user caused, so it is localised. */
+function confirmedAtTextOf(view: TaskView): string {
+  return formatEventTime(confirmedAtOf(view) ?? "");
 }
 
 /** Recovery note written by the runtime when a task survived an interruption. */
@@ -185,27 +212,24 @@ function clearSelection(taskId: string): void {
 <template>
   <section class="references">
     <header class="intro">
-      <h2>Reference collection</h2>
-      <p>
-        The browser connector searches for reference images and stores them locally. Nothing is sent
-        to Blender until you select the images and confirm.
-      </p>
+      <h2>{{ t("references.title") }}</h2>
+      <p>{{ t("references.intro") }}</p>
     </header>
 
     <form class="search" @submit.prevent="submit">
       <label class="search__field">
-        <span class="search__label">Search query</span>
+        <span class="search__label">{{ t("references.searchQuery") }}</span>
         <input
           v-model="query"
           type="search"
           name="query"
-          placeholder="e.g. anime character turnaround sheet"
+          :placeholder="t('references.searchPlaceholder')"
           maxlength="200"
           :disabled="submitting"
         />
       </label>
       <label class="search__field search__field--small">
-        <span class="search__label">Candidates</span>
+        <span class="search__label">{{ t("references.candidatesLabel") }}</span>
         <input
           v-model.number="limit"
           type="number"
@@ -216,28 +240,31 @@ function clearSelection(taskId: string): void {
         />
       </label>
       <button type="submit" class="primary" data-test="submit" :disabled="!canSubmit">
-        {{ submitting ? "Working…" : "Collect references" }}
+        {{ submitting ? t("references.working") : t("references.collect") }}
       </button>
     </form>
 
     <p v-if="error" class="banner" :class="{ 'banner--offline': offline }" role="alert">
-      <span>{{ error }}</span>
-      <button type="button" class="link" @click="refresh()">Retry</button>
+      <span>{{ appErrorMessage(error) }}</span>
+      <button type="button" class="link" @click="refresh()">{{ t("common.retry") }}</button>
     </p>
 
-    <LoadingState v-if="state === 'loading' && views.length === 0" message="Loading tasks…" />
+    <LoadingState
+      v-if="state === 'loading' && views.length === 0"
+      :message="t('references.loadingTasks')"
+    />
 
     <ErrorState
       v-else-if="state === 'error' && views.length === 0"
-      :title="offline ? 'Runtime unavailable' : 'Could not load tasks'"
-      :message="error ?? 'unknown error'"
+      :title="offline ? t('app.runtimeUnavailable') : t('references.loadFailed')"
+      :message="appErrorMessage(error)"
       @retry="refresh()"
     />
 
     <EmptyState
       v-else-if="views.length === 0"
-      title="No reference tasks yet"
-      description="Start a collection above. Candidates appear here for review before anything is sent to Blender."
+      :title="t('references.emptyTitle')"
+      :description="t('references.emptyDescription')"
     />
 
     <template v-else>
@@ -248,31 +275,47 @@ function clearSelection(taskId: string): void {
             <p class="task__meta">
               <span class="mono">{{ view.task.task_id }}</span>
               <span>·</span>
-              <span>{{ imageCandidatesOf(view).length }} candidate(s)</span>
+              <span>{{
+                t(
+                  "references.candidateCount",
+                  { count: candidateCountOf(view) },
+                  candidateCountOf(view),
+                )
+              }}</span>
               <span>·</span>
-              <span>updated {{ view.task.updated_at }}</span>
+              <span>{{ t("references.updatedAt", { timestamp: view.task.updated_at }) }}</span>
             </p>
           </div>
           <StatusBadge :status="view.task.status" />
         </header>
 
         <p v-if="view.task.status === 'running' || view.task.status === 'pending'" class="note">
-          Collecting and downloading candidates…
+          {{ t("references.collecting") }}
         </p>
 
         <p v-if="view.task.error" class="error" role="alert">
           <strong>{{ view.task.error.code }}</strong>
-          {{ view.task.error.message }}
+          {{ taskErrorText(view.task.error.code, view.task.error.message) }}
         </p>
 
         <p v-if="recoveryOf(view)" class="note note--recovery" data-test="recovery-note">
-          Recovered after an interruption ({{ recoveryOf(view)!.action }}) —
-          {{ recoveryOf(view)!.detail }}
+          {{
+            t("references.recoveryNote", {
+              action: recoveryOf(view)!.action,
+              detail: recoveryOf(view)!.detail,
+            })
+          }}
         </p>
 
         <ul v-if="failuresOf(view).length" class="failures">
           <li class="failures__head">
-            {{ failuresOf(view).length }} candidate(s) could not be saved
+            {{
+              t(
+                "references.failuresHead",
+                { count: failuresOf(view).length },
+                failuresOf(view).length,
+              )
+            }}
           </li>
           <li v-for="failure in failuresOf(view)" :key="failure.url" class="failures__item">
             <span class="mono failures__url">{{ failure.url }}</span>
@@ -282,7 +325,7 @@ function clearSelection(taskId: string): void {
 
         <template v-if="showsCandidates(view)">
           <p v-if="view.task.status === 'waiting_for_confirmation'" class="note">
-            Select the images this task should use. Confirming runs Blender once for this selection.
+            {{ t("references.selectHint") }}
           </p>
           <div class="grid">
             <ReferenceCard
@@ -291,7 +334,7 @@ function clearSelection(taskId: string): void {
               :artifact="artifact"
               :selected="isChosen(view, artifact.artifact_id)"
               :preview="previews[artifact.artifact_id]"
-              :preview-error="previewErrors[artifact.artifact_id]"
+              :preview-error="previewErrorOf(artifact.artifact_id)"
               :loading="loadingPreviews[artifact.artifact_id]"
               :disabled="!canEditSelection(view)"
               @toggle="toggle(view.task.task_id, artifact.artifact_id)"
@@ -301,24 +344,26 @@ function clearSelection(taskId: string): void {
 
         <div v-if="view.task.status === 'waiting_for_confirmation'" class="actions">
           <label class="search__field search__field--small">
-            <span class="search__label">Plane name (optional)</span>
+            <span class="search__label">{{ t("references.planeName") }}</span>
             <input
               v-model="planeNames[view.task.task_id]"
               data-test="plane-name"
               type="text"
               maxlength="64"
-              placeholder="ReferencePlane"
+              :placeholder="t('references.planeNamePlaceholder')"
               :disabled="busy(view)"
             />
           </label>
-          <p class="actions__count">{{ selectionCount(view) }} selected</p>
+          <p class="actions__count">
+            {{ t("references.selectedCount", { count: selectionCount(view) }) }}
+          </p>
           <button
             type="button"
             class="link"
             :disabled="selectionCount(view) === 0 || busy(view)"
             @click="clearSelection(view.task.task_id)"
           >
-            Clear
+            {{ t("common.clear") }}
           </button>
           <button
             type="button"
@@ -327,7 +372,7 @@ function clearSelection(taskId: string): void {
             :disabled="busy(view)"
             @click="cancel(view.task.task_id)"
           >
-            Cancel task
+            {{ t("references.cancelTask") }}
           </button>
           <button
             type="button"
@@ -336,35 +381,48 @@ function clearSelection(taskId: string): void {
             :disabled="selectionCount(view) === 0 || busy(view)"
             @click="confirm(view.task.task_id, planeNames[view.task.task_id])"
           >
-            {{ busy(view) ? "Confirming…" : "Confirm and continue" }}
+            {{ busy(view) ? t("references.confirming") : t("references.confirm") }}
           </button>
         </div>
 
         <template v-if="view.task.status === 'succeeded'">
           <p class="success">
-            Confirmed {{ confirmedAtOf(view) ?? "" }} ·
-            {{ planeOf(view).name ?? "reference plane" }} with
-            {{ planeOf(view).image_count ?? imageCandidatesOf(view).length }} image(s).
+            {{
+              t(
+                "references.confirmed",
+                {
+                  timestamp: confirmedAtTextOf(view),
+                  plane: planeOf(view).name ?? t("references.planeFallback"),
+                  count: placedImageCountOf(view),
+                },
+                placedImageCountOf(view),
+              )
+            }}
           </p>
 
           <div v-if="blendFileOf(view)" class="produced" data-test="produced">
             <div class="produced__meta">
-              <strong>Blender scene</strong>
+              <strong>{{ t("references.blendScene") }}</strong>
               <span v-if="blendArtifactOf(view)" class="mono">
-                blend artifact {{ blendArtifactOf(view) }}</span
+                {{ t("references.blendArtifact", { id: blendArtifactOf(view) }) }}</span
               >
               <span>{{ formatBytes(blendFileOf(view)!.size_bytes) }}</span>
-              <span>created {{ blendFileOf(view)!.created_at }}</span>
+              <span>{{
+                t("references.createdAt", { timestamp: blendFileOf(view)!.created_at })
+              }}</span>
               <span>{{ blendFileOf(view)!.media_type ?? "application/x-blender" }}</span>
               <span v-if="objectNamesOf(view).length">
-                {{ objectNamesOf(view).length }} object(s):
+                {{
+                  t(
+                    "references.objectCount",
+                    { count: objectNamesOf(view).length },
+                    objectNamesOf(view).length,
+                  )
+                }}
                 <span class="mono">{{ objectNamesOf(view).join(", ") }}</span>
               </span>
             </div>
-            <p class="note">
-              A .blend file cannot be previewed in the browser; open it in Blender or reveal it on
-              disk.
-            </p>
+            <p class="note">{{ t("references.blendNote") }}</p>
             <div class="produced__actions">
               <button
                 type="button"
@@ -372,7 +430,7 @@ function clearSelection(taskId: string): void {
                 :disabled="isOpening(view.task.task_id)"
                 @click="openProduced(view.task.task_id, blendFileOf(view)!.artifact_id, 'reveal')"
               >
-                Show in folder
+                {{ t("references.showInFolder") }}
               </button>
               <button
                 type="button"
@@ -380,7 +438,7 @@ function clearSelection(taskId: string): void {
                 :disabled="isOpening(view.task.task_id)"
                 @click="openProduced(view.task.task_id, blendFileOf(view)!.artifact_id, 'open')"
               >
-                Open in Blender
+                {{ t("references.openInBlender") }}
               </button>
             </div>
             <p
@@ -389,7 +447,7 @@ function clearSelection(taskId: string): void {
               role="alert"
               data-test="open-error"
             >
-              {{ openErrors[view.task.task_id] }}
+              {{ appErrorMessage(openErrors[view.task.task_id]) }}
             </p>
           </div>
 
@@ -399,13 +457,11 @@ function clearSelection(taskId: string): void {
             role="alert"
             data-test="missing-artifact"
           >
-            The scene was recorded as
-            <span class="mono">{{ blendArtifactOf(view) }}</span>
-            but that artifact is no longer in the store, so it cannot be opened.
+            {{ t("references.missingArtifact", { id: blendArtifactOf(view) }) }}
           </p>
 
           <p v-if="blendWarningOf(view)" class="error" role="alert" data-test="blend-warning">
-            The scene was produced but could not be registered: {{ blendWarningOf(view) }}
+            {{ t("references.blendWarning", { detail: blendWarningOf(view) }) }}
           </p>
         </template>
       </article>

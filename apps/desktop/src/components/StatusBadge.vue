@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import { statusLabel } from "../i18n";
+
 const props = defineProps<{ status: string }>();
+
+/** The protocol value never changes; only its label is localised. */
+const label = computed(() => statusLabel(props.status));
 
 const tone = computed(() => {
   switch (props.status) {
@@ -25,7 +30,7 @@ const tone = computed(() => {
 </script>
 
 <template>
-  <span class="badge" :class="`badge--${tone}`">{{ status }}</span>
+  <span class="badge" :class="`badge--${tone}`" :data-status="status">{{ label }}</span>
 </template>
 
 <style scoped>

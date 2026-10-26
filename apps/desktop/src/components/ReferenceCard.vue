@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import type { ArtifactView } from "../lib/runtimeClient";
 
@@ -14,19 +15,26 @@ const props = defineProps<{
 
 defineEmits<{ toggle: [] }>();
 
-const title = computed(() => props.artifact.metadata.title?.trim() || "Untitled candidate");
+const { t, n } = useI18n();
+
+const title = computed(
+  () => props.artifact.metadata.title?.trim() || t("references.untitledCandidate"),
+);
 
 const dimensions = computed(() => {
   const { width, height } = props.artifact.metadata;
+  // Pixel dimensions are a technical fact, not a quantity to be localised.
   return width && height ? `${width} × ${height}` : null;
 });
 
 const sizeLabel = computed(() => {
   const bytes = props.artifact.size_bytes;
   if (bytes === null || bytes === undefined) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024) return t("common.units.bytes", { value: bytes });
+  if (bytes < 1024 * 1024) {
+    return t("common.units.kilobytes", { value: n(bytes / 1024, "integer") });
+  }
+  return t("common.units.megabytes", { value: n(bytes / (1024 * 1024), "decimal1") });
 });
 
 const sourceHost = computed(() => {
@@ -50,7 +58,7 @@ const sourceHref = computed(() => props.artifact.metadata.source_page ?? null);
     role="checkbox"
     :data-test="`card-${artifact.artifact_id}`"
     :aria-checked="selected"
-    :aria-label="`${selected ? 'Deselect' : 'Select'} ${title}`"
+    :aria-label="selected ? t('references.deselect', { title }) : t('references.select', { title })"
     :disabled="disabled"
     @click="$emit('toggle')"
   >
@@ -62,7 +70,7 @@ const sourceHref = computed(() => props.artifact.metadata.source_page ?? null);
       </div>
       <div v-else class="card__fallback card__fallback--loading">
         <span class="spinner" aria-hidden="true"></span>
-        <p>Loading preview…</p>
+        <p>{{ t("references.loadingPreview") }}</p>
       </div>
     </div>
 
@@ -80,7 +88,7 @@ const sourceHref = computed(() => props.artifact.metadata.source_page ?? null);
         target="_blank"
         rel="noreferrer noopener"
         @click.stop
-        >Open source page</a
+        >{{ t("references.openSourcePage") }}</a
       >
     </div>
 

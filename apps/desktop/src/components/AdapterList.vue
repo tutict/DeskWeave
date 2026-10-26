@@ -1,16 +1,20 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import EmptyState from "./EmptyState.vue";
 import StatusBadge from "./StatusBadge.vue";
 import type { AdapterDescriptor } from "../lib/runtimeClient";
 
 defineProps<{ adapters: AdapterDescriptor[] }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
   <EmptyState
     v-if="adapters.length === 0"
-    title="No adapters registered"
-    description="Adapters appear here once the runtime registers them. Nothing is connected yet."
+    :title="t('adapters.emptyTitle')"
+    :description="t('adapters.emptyDescription')"
   />
   <ul v-else class="adapters">
     <li v-for="adapter in adapters" :key="adapter.adapter_id" class="adapter">

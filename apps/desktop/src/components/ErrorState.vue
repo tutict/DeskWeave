@@ -1,13 +1,17 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 defineProps<{ title?: string; message: string }>();
 defineEmits<{ retry: [] }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
   <div class="state state--error" role="alert">
-    <h3>{{ title ?? "Something went wrong" }}</h3>
+    <h3>{{ title ?? t("common.somethingWentWrong") }}</h3>
     <p>{{ message }}</p>
-    <button type="button" @click="$emit('retry')">Retry</button>
+    <button type="button" @click="$emit('retry')">{{ t("common.retry") }}</button>
   </div>
 </template>
 
