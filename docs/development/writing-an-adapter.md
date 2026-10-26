@@ -234,21 +234,33 @@ the ImportError through `sys.modules` rather than uninstalling anything).
 | Collection source registry (`register_collection_source`) | **implemented** in Phase 2 |
 | `MockAdapter` for tests and demos | **implemented** (`deskweave_adapter_sdk.mock`) |
 | Plugin SDK (`Plugin`, `PluginManifest`, `PluginContext`) | **experimental** — the `anime-modeling` plugin registers connectors only; there is no workflow authoring API yet |
+| WASM plugin sandbox (third-party code, any language) | **implemented and tested as a library**, not wired into `Runtime` — see [writing-a-wasm-plugin.md](writing-a-wasm-plugin.md) |
 | Plugin marketplace, remote plugin loading, signing | **not implemented**, and out of scope until the local contract is stable |
 | Per-operation cancellation token | **not implemented** — cancellation is `asyncio` task cancellation plus `timeout_seconds` |
 | macOS/Linux-specific connectors | **not implemented** |
 
-### Adapter SDK vs Plugin SDK
+### Adapter SDK vs Plugin SDK vs WASM plugin
 
-They answer different questions and neither wraps the other:
+Three different things share the word "plugin" in this repository. They are not
+layers of each other:
 
 - **Adapter** = *how to talk to one external thing*. One transport, one lifecycle,
   one or more capabilities. Runs inside the runtime process, subject to the
   permission layer.
-- **Plugin** = *how several connectors are combined into a workflow*. It receives a
-  narrow `PluginContext` (`register_adapter`, `list_adapters`) and must not reach
-  the database or bypass permissions.
+- **Plugin** (`packages/plugin-sdk`) = *how several connectors are combined into a
+  workflow*. It receives a narrow `PluginContext` (`register_adapter`,
+  `list_adapters`) and must not reach the database or bypass permissions. **It is
+  first-party Python and runs in-process** — it is trusted code.
+- **WASM plugin** (`packages/plugin-wasm`) = *code this project did not write*.
+  It runs in a WebAssembly sandbox with no ambient authority and one authorised
+  host-call channel. It is **not** a way to register connectors, and it cannot
+  drive a workflow; it performs one computation per invocation.
 
 A plugin that offers a workflow which agents can call **does not exist yet**. Today
 a plugin can register connectors and nothing else; the workflow logic still lives
 in the runtime. Treat the plugin layer as a seam, not a stable API.
+
+The WASM plugin path exists to answer the opposite question: not "how do we
+compose trusted connectors", but "how do we run untrusted code at all". Nothing
+about it makes the `plugin-sdk` layer safer, and nothing about this section
+changes because it exists.
