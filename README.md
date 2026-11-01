@@ -1,5 +1,7 @@
 # DeskWeave
 
+**经纬** — the warp and the weft: one fixed core, and everything you thread through it.
+
 **English** · [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml/badge.svg)](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml)

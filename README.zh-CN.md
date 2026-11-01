@@ -1,5 +1,7 @@
 # DeskWeave
 
+**经纬** —— 固定不动的经，穿行其间的纬。
+
 [English](README.md) · **简体中文**
 
 [![CI](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml/badge.svg)](https://github.com/tutict/DeskWeave/actions/workflows/ci.yml)
